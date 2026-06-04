@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hivemind-mqtt-protocol"
+dynamic = ["version"]
+description = "MQTT broker-mediated network protocol plugin for hivemind-core"
+license = "Apache-2.0"
+authors = [
+    { name = "JarbasAi", email = "jarbasai@mailfence.com" }
+]
+requires-python = ">=3.10"
+dependencies = [
+    "paho-mqtt>=1.6",
+    "hivemind-plugin-manager",
+    "poorman_handshake>=0.1.0",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest",
+    "hivemind-core",
+    "hivemind-bus-client",
+    "ovos-bus-client",
+    "ovos-utils",
+    "hivescope",
+]
+
+[project.urls]
+Homepage = "https://github.com/JarbasHiveMind/hivemind-mqtt-protocol"
+
+[project.entry-points."hivemind.network.protocol"]
+"hivemind-mqtt-plugin" = "hivemind_mqtt_protocol:HiveMindMqttProtocol"
+
+[tool.setuptools.dynamic]
+version = { attr = "hivemind_mqtt_protocol.version.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["hivemind_mqtt_protocol*"]

@@ -1,0 +1,108 @@
+# hivemind-mqtt-protocol
+
+An MQTT broker-mediated network protocol plugin for [hivemind-core](https://github.com/JarbasHiveMind/hivemind-core).
+
+Satellites connect to the same MQTT broker they already use for sensors (Home
+Assistant, ESPHome, Tasmota, ESP32) and exchange encrypted `HiveMessage` frames
+over that broker.  No bespoke inbound port or WebSocket stack is required on the
+hub; both hub and satellites are broker clients.
+
+## The broker-mediated model
+
+```
+satellite ──pub──▶  broker  ◀──sub── hub
+hub       ──pub──▶  broker  ◀──sub── satellite
+```
+
+The hub runs ONE paho-mqtt client.  Logical per-satellite connections are
+derived from the topic hierarchy.
+
+### Topic scheme
+
+```
+<prefix>/<hub_id>/c2s/<satellite_id>     # satellite → hub  (hub subscribes …/c2s/+)
+<prefix>/<hub_id>/s2c/<satellite_id>     # hub → satellite
+<prefix>/<hub_id>/status/<satellite_id>  # retained LWT presence (online / offline)
+```
+
+Defaults: `prefix = hivemind`, `hub_id` = node identity name.
+
+### Privacy option
+
+Set `hash_topics: true` to SHA-256-hash the `satellite_id` segment.  The broker
+then sees only an opaque 16-char hex token — useful when the broker is shared or
+untrusted.
+
+## Crypto
+
+The MQTT payload carries the **same encrypted HiveMessage frame** the WebSocket
+transport sends.  The broker only ever sees ciphertext.  HiveMind's full
+AES-GCM / RSA / PAKE handshake runs unchanged inside the payload.
+
+## Authentication
+
+Two independent layers:
+
+1. **Broker-level** — MQTT `username` / `password`, or TLS client-cert.
+   Configure the broker's ACL so each satellite may only publish to its own
+   `c2s/<key>` topic and subscribe to its own `s2c/<key>` topic.
+
+2. **HiveMind-level** — the HELLO / HANDSHAKE exchange embedded in the
+   encrypted payload, identical to the WebSocket path.  The satellite's MQTT
+   username **must equal** its HiveMind access key so the hub can look up the
+   DB record on first contact.
+
+## QoS
+
+| Traffic type | QoS |
+|---|---|
+| Control frames (default) | 1 (at-least-once) |
+| Binary / audio frames | 0 (fire-and-forget, low latency) |
+
+## Configuration keys
+
+| Key | Default | Description |
+|---|---|---|
+| `broker_host` | `localhost` | MQTT broker hostname or IP |
+| `broker_port` | `1883` | Broker port (8883 for TLS) |
+| `broker_username` | — | MQTT username for the hub |
+| `broker_password` | — | MQTT password for the hub |
+| `tls` | `false` | Enable TLS |
+| `tls_ca_certs` | — | Path to CA bundle |
+| `tls_certfile` | — | Path to client cert (mTLS) |
+| `tls_keyfile` | — | Path to client key (mTLS) |
+| `hub_id` | node identity name | Hub identifier in topics |
+| `topic_prefix` | `hivemind` | Topic namespace prefix |
+| `qos` | `1` | Default MQTT QoS for control frames |
+| `hash_topics` | `false` | Hash `satellite_id` in topics |
+| `idle_timeout` | `300` | Seconds of silence before evicting a peer (0 = off) |
+
+## Usage
+
+```python
+from hivemind_plugin_manager import NetworkProtocolFactory
+
+server = NetworkProtocolFactory.create(
+    "hivemind-mqtt-plugin",
+    config={
+        "broker_host": "192.168.1.100",
+        "broker_port": 1883,
+        "hub_id": "living-room-hub",
+    },
+)
+server.run()   # blocks
+```
+
+## Satellite side
+
+The matching satellite client (publish to `c2s`, subscribe to `s2c`, set the
+LWT on `status/<satellite_id>`) is a planned follow-up as a transport option in
+`hivemind-bus-client` or a dedicated `hivemind-mqtt-client`.  An
+ESPHome / Tasmota external-component example for ESP32 satellites is also
+planned.
+
+## Install
+
+```bash
+pip install hivemind-mqtt-protocol
+```
