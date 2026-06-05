@@ -101,6 +101,24 @@ LWT on `status/<satellite_id>`) is a planned follow-up as a transport option in
 ESPHome / Tasmota external-component example for ESP32 satellites is also
 planned.
 
+## Where it fits
+
+```
+hivemind-core
+  └── hivemind-plugin-manager  (NetworkProtocolFactory loads plugins by entry-point)
+        └── hivemind-mqtt-protocol  ← this repo
+              └── paho-mqtt client connected to an external MQTT broker
+```
+
+The plugin registers under the `hivemind.network.protocol` entry-point group as
+`hivemind-mqtt-plugin`.
+
+## Docs
+
+- [docs/architecture.md](docs/architecture.md) — topic scheme, crypto, QoS, idle eviction
+- [docs/configuration.md](docs/configuration.md) — full configuration reference
+- [docs/operations.md](docs/operations.md) — broker setup, TLS/mTLS, authoring a transport plugin
+
 ## Install
 
 ```bash
