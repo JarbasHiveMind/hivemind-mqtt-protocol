@@ -200,7 +200,6 @@ class HiveMindMqttProtocol(NetworkProtocol):
 
         conn.name = f"{useragent}::{user.client_id}::{user.name}"
         conn.crypto_key = user.crypto_key
-        conn.msg_blacklist = user.message_blacklist or []
         conn.skill_blacklist = user.skill_blacklist or []
         conn.intent_blacklist = user.intent_blacklist or []
         conn.allowed_types = user.allowed_types
