@@ -22,7 +22,7 @@ test = [
     "pytest",
     "hivemind-core",
     "hivemind-bus-client",
-    "ovos-bus-client",
+    "ovos-bus-client>=2.0.0a3",
     "ovos-utils",
     "hivescope",
 ]
