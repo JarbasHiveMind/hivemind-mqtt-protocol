@@ -11,3 +11,4 @@ jobs:
     with:
       python_versions: '["3.10", "3.11", "3.12", "3.13", "3.14"]'
       test_path: 'tests/'
+      pre_install_pip: '"hivescope==0.5.0a2" "hivemind-plugin-manager==0.7.0a1" "hivemind-core==4.6.0a2" "hivemind-ovos-agent-plugin==0.3.0a4"'
