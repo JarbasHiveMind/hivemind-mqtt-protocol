@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.1a1](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/tree/0.1.1a1) (2026-06-06)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/compare/0.1.0a2...0.1.1a1)
+
+**Merged pull requests:**
+
+- fix: drop removed message\_blacklist read [\#3](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/pull/3) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.1.0a2](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/tree/0.1.0a2) (2026-06-05)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/compare/6d635823d8d49b9899715fda777a22457e7dba7a...0.1.0a2)
