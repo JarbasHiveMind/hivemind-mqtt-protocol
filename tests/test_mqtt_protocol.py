@@ -449,3 +449,93 @@ class TestQoS:
     def test_custom_qos_from_config(self):
         p = _make_protocol({"qos": 0})
         assert p._qos(False) == 0
+
+
+# ---------------------------------------------------------------------------
+# version.py module
+# ---------------------------------------------------------------------------
+
+
+def test_version_module_exposes_constants_and_string():
+    from hivemind_mqtt_protocol import version as v
+    assert isinstance(v.VERSION_MAJOR, int)
+    assert isinstance(v.VERSION_MINOR, int)
+    assert isinstance(v.VERSION_BUILD, int)
+    assert isinstance(v.VERSION_ALPHA, int)
+    assert isinstance(v.__version__, str)
+    assert v.__version__.startswith(
+        f"{v.VERSION_MAJOR}.{v.VERSION_MINOR}.{v.VERSION_BUILD}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# _cfg / config helpers
+# ---------------------------------------------------------------------------
+
+
+class TestConfig:
+    def test_default_hub_id_falls_back_to_config(self):
+        p = _make_protocol({"hub_id": "myhub"})
+        assert p._hub_id() == "myhub"
+
+    def test_default_prefix(self):
+        p = _make_protocol()
+        assert p._prefix() == "hivemind"
+
+    def test_custom_prefix(self):
+        p = _make_protocol({"topic_prefix": "iot"})
+        assert p._prefix() == "iot"
+
+    def test_missing_key_returns_default(self):
+        p = _make_protocol()
+        assert p._cfg("nonexistent", 42) == 42
+
+    def test_hash_topics_false_by_default(self):
+        p = _make_protocol()
+        assert p._cfg("hash_topics", False) is False
+
+
+# ---------------------------------------------------------------------------
+# _on_connect subscribes to the right wildcards
+# ---------------------------------------------------------------------------
+
+
+class TestOnConnect:
+    def test_on_connect_subscribes_c2s_and_status(self):
+        p = _make_protocol()
+        mock_client = MagicMock(name="client")
+        p._on_connect(mock_client, None, {}, 0)
+
+        calls = [c[0][0] for c in mock_client.subscribe.call_args_list]
+        assert p.c2s_wildcard() in calls
+        assert p.status_wildcard() in calls
+
+    def test_on_connect_failed_rc_skips_subscribe(self):
+        p = _make_protocol()
+        mock_client = MagicMock(name="client")
+        p._on_connect(mock_client, None, {}, 1)
+        mock_client.subscribe.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# require_crypto path
+# ---------------------------------------------------------------------------
+
+
+class TestRequireCrypto:
+    def test_no_crypto_key_and_require_crypto_rejects(self):
+        p = _make_protocol()
+        p.hm_protocol.handshake_enabled = False
+        p.hm_protocol.require_crypto = True
+        conn = p._build_client_connection("sat1", "sat1", "sat1")
+        assert conn is None
+        p.hm_protocol.handle_invalid_protocol_version.assert_called_once()
+
+    def test_crypto_key_present_allows_connection(self):
+        p = _make_protocol()
+        p.hm_protocol.handshake_enabled = False
+        p.hm_protocol.require_crypto = True
+        user = p.hm_protocol.db.get_client_by_api_key.return_value
+        user.crypto_key = "some-key"
+        conn = p._build_client_connection("sat1", "sat1", "sat1")
+        assert conn is not None
