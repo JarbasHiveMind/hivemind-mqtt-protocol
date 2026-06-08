@@ -147,9 +147,9 @@ def _make_protocol(config=None):
     hm.identity.name = "testhub"
     hm.handshake_enabled = True
     hm.require_crypto = False
-    # Always inject node_id via config so _node_id() doesn't go through the
+    # Always inject name via config so _name() doesn't go through the
     # identity property chain (MagicMock.name is a reserved attribute).
-    base_config = {"node_id": "testhub"}
+    base_config = {"name": "testhub"}
     if config:
         base_config.update(config)
     config = base_config
@@ -197,8 +197,8 @@ class TestTopics:
         p = _make_protocol()
         assert p.status_topic("sat1") == "hivemind/testhub/status/sat1"
 
-    def test_custom_prefix_and_node_id(self):
-        p = _make_protocol({"topic_prefix": "hm", "node_id": "myhub"})
+    def test_custom_prefix_and_name(self):
+        p = _make_protocol({"topic_prefix": "hm", "name": "myhub"})
         assert p.c2s_topic("x") == "hm/myhub/c2s/x"
 
     def test_c2s_wildcard(self):
@@ -474,9 +474,9 @@ def test_version_module_exposes_constants_and_string():
 
 
 class TestConfig:
-    def test_default_node_id_falls_back_to_config(self):
-        p = _make_protocol({"node_id": "myhub"})
-        assert p._node_id() == "myhub"
+    def test_default_name_falls_back_to_config(self):
+        p = _make_protocol({"name": "myhub"})
+        assert p._name() == "myhub"
 
     def test_default_prefix(self):
         p = _make_protocol()
@@ -789,7 +789,7 @@ class TestRun:
 
     def test_run_publishes_hub_online(self):
         """run() publishes 'online' to the hub status topic after connect."""
-        p = _make_protocol({"node_id": "testhub"})
+        p = _make_protocol({"name": "testhub"})
         mock_client_instance = self._make_mock_mqtt_client()
 
         import paho.mqtt.client as paho_mqtt
@@ -804,7 +804,7 @@ class TestRun:
 
     def test_run_will_set_offline_lwt(self):
         """run() sets a LWT will_set with 'offline' payload."""
-        p = _make_protocol({"node_id": "testhub"})
+        p = _make_protocol({"name": "testhub"})
         mock_client_instance = self._make_mock_mqtt_client()
 
         import paho.mqtt.client as paho_mqtt

@@ -13,7 +13,7 @@ All settings are passed in the `hivemind-mqtt-plugin` block of
 | `tls_ca_certs` | — | Path to CA bundle for broker TLS verification. |
 | `tls_certfile` | — | Path to client certificate (mTLS). |
 | `tls_keyfile` | — | Path to client key (mTLS). |
-| `node_id` | node identity name | Hub identifier used in topic paths. |
+| `name` | node identity name | Hub identifier used in topic paths. |
 | `topic_prefix` | `hivemind` | Topic namespace prefix. |
 | `qos` | `1` | Default MQTT QoS for control frames. |
 | `hash_topics` | `false` | SHA-256-hash the `satellite_id` segment in topics. |
@@ -28,7 +28,7 @@ All settings are passed in the `hivemind-mqtt-plugin` block of
     "hivemind-mqtt-plugin": {
       "broker_host": "192.168.1.100",
       "broker_port": 1883,
-      "node_id": "living-room-hub"
+      "name": "living-room-hub"
     }
   }
 }

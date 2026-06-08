@@ -31,12 +31,12 @@ The hub does not bind any TCP port. Both hub and satellites are broker
 ## Topic scheme
 
 ```
-<prefix>/<node_id>/c2s/<satellite_id>     # satellite → hub  (hub subscribes …/c2s/+)
-<prefix>/<node_id>/s2c/<satellite_id>     # hub → satellite
-<prefix>/<node_id>/status/<satellite_id>  # retained LWT presence (online / offline)
+<prefix>/<name>/c2s/<satellite_id>     # satellite → hub  (hub subscribes …/c2s/+)
+<prefix>/<name>/s2c/<satellite_id>     # hub → satellite
+<prefix>/<name>/status/<satellite_id>  # retained LWT presence (online / offline)
 ```
 
-Defaults: `prefix = hivemind`, `node_id` = node identity name.
+Defaults: `prefix = hivemind`, `name` = node identity name.
 
 The `satellite_id` is the satellite's HiveMind access key (or its SHA-256
 hash when `hash_topics: true` is set).
