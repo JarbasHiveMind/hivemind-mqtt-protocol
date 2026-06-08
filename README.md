@@ -29,7 +29,7 @@ Defaults: `prefix = hivemind`, `name` = node identity name.
 
 ### Privacy option
 
-Set `hash_topics: true` to SHA-256-hash the `satellite_id` segment.  The broker
+Set `
 then sees only an opaque 16-char hex token — useful when the broker is shared or
 untrusted.
 
@@ -74,7 +74,7 @@ Two independent layers:
 | `name` | node identity name | Node name in topics |
 | `topic_prefix` | `hivemind` | Topic namespace prefix |
 | `qos` | `1` | Default MQTT QoS for control frames |
-| `hash_topics` | `false` | Hash `satellite_id` in topics |
+| `
 | `idle_timeout` | `300` | Seconds of silence before evicting a peer (0 = off) |
 
 ## Usage

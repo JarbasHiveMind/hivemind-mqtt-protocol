@@ -16,7 +16,7 @@ All settings are passed in the `hivemind-mqtt-plugin` block of
 | `name` | node identity name | Node name used in topic paths. |
 | `topic_prefix` | `hivemind` | Topic namespace prefix. |
 | `qos` | `1` | Default MQTT QoS for control frames. |
-| `hash_topics` | `false` | SHA-256-hash the `satellite_id` segment in topics. |
+| `
 | `idle_timeout` | `300` | Seconds of silence before evicting a peer (0 = off). |
 
 ## Basic (no TLS)
@@ -92,7 +92,7 @@ All settings are passed in the `hivemind-mqtt-plugin` block of
     "module": "hivemind-mqtt-plugin",
     "hivemind-mqtt-plugin": {
       "broker_host": "shared-broker.example.com",
-      "hash_topics": true
+      "
     }
   }
 }

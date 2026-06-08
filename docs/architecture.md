@@ -39,7 +39,7 @@ The master does not bind any TCP port. Both master and satellites are broker
 Defaults: `prefix = hivemind`, `name` = node identity name.
 
 The `satellite_id` is the satellite's HiveMind access key (or its SHA-256
-hash when `hash_topics: true` is set).
+hash when `
 
 ## Crypto
 
@@ -78,7 +78,7 @@ Default: 300 seconds.
 
 ## Privacy: hashed topics
 
-Set `hash_topics: true` to replace the `satellite_id` segment with a
+Set `
 16-character hex SHA-256 hash. The broker then sees only an opaque token —
 useful when the broker is shared or untrusted.
 
