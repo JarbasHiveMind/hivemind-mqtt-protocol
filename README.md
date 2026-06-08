@@ -20,12 +20,12 @@ derived from the topic hierarchy.
 ### Topic scheme
 
 ```
-<prefix>/<hub_id>/c2s/<satellite_id>     # satellite → hub  (hub subscribes …/c2s/+)
-<prefix>/<hub_id>/s2c/<satellite_id>     # hub → satellite
-<prefix>/<hub_id>/status/<satellite_id>  # retained LWT presence (online / offline)
+<prefix>/<node_id>/c2s/<satellite_id>     # satellite → hub  (hub subscribes …/c2s/+)
+<prefix>/<node_id>/s2c/<satellite_id>     # hub → satellite
+<prefix>/<node_id>/status/<satellite_id>  # retained LWT presence (online / offline)
 ```
 
-Defaults: `prefix = hivemind`, `hub_id` = node identity name.
+Defaults: `prefix = hivemind`, `node_id` = node identity name.
 
 ### Privacy option
 
@@ -71,7 +71,7 @@ Two independent layers:
 | `tls_ca_certs` | — | Path to CA bundle |
 | `tls_certfile` | — | Path to client cert (mTLS) |
 | `tls_keyfile` | — | Path to client key (mTLS) |
-| `hub_id` | node identity name | Hub identifier in topics |
+| `node_id` | node identity name | Hub identifier in topics |
 | `topic_prefix` | `hivemind` | Topic namespace prefix |
 | `qos` | `1` | Default MQTT QoS for control frames |
 | `hash_topics` | `false` | Hash `satellite_id` in topics |
@@ -87,7 +87,7 @@ server = NetworkProtocolFactory.create(
     config={
         "broker_host": "192.168.1.100",
         "broker_port": 1883,
-        "hub_id": "living-room-hub",
+        "node_id": "living-room-hub",
     },
 )
 server.run()   # blocks

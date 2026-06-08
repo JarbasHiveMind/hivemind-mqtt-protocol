@@ -33,7 +33,7 @@ password_file /etc/mosquitto/passwd
 Create a user for the hub:
 
 ```bash
-sudo mosquitto_passwd -c /etc/mosquitto/passwd hivemind-hub
+sudo mosquitto_passwd -c /etc/mosquitto/passwd hivemind-node
 ```
 
 Set `broker_username` and `broker_password` in `server.json` to match.
@@ -45,7 +45,7 @@ In Mosquitto, create `/etc/mosquitto/acl`:
 
 ```
 # Hub can read and write anything under hivemind/
-user hivemind-hub
+user hivemind-node
 topic hivemind/#
 
 # Satellite with key "abc123" can only use its own topics
