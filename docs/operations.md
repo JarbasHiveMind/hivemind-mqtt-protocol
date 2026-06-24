@@ -10,7 +10,7 @@ Any MQTT 3.1.1 or 5.0 broker works. Common choices:
   integrations.
 - **HiveMQ** — enterprise-grade, strong ACL support.
 
-The hub and satellites only need TCP access to the broker — no inbound ports on
+The master and satellites only need TCP access to the broker — no inbound ports on
 either side.
 
 ## Mosquitto quick setup
@@ -30,10 +30,10 @@ allow_anonymous false
 password_file /etc/mosquitto/passwd
 ```
 
-Create a user for the hub:
+Create a user for the master:
 
 ```bash
-sudo mosquitto_passwd -c /etc/mosquitto/passwd hivemind-hub
+sudo mosquitto_passwd -c /etc/mosquitto/passwd hivemind-node
 ```
 
 Set `broker_username` and `broker_password` in `server.json` to match.
@@ -44,8 +44,8 @@ For production, restrict each satellite's MQTT credentials to its own topics.
 In Mosquitto, create `/etc/mosquitto/acl`:
 
 ```
-# Hub can read and write anything under hivemind/
-user hivemind-hub
+# Master can read and write anything under hivemind/
+user hivemind-node
 topic hivemind/#
 
 # Satellite with key "abc123" can only use its own topics

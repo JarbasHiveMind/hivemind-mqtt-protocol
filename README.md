@@ -5,27 +5,27 @@ An MQTT broker-mediated network protocol plugin for [hivemind-core](https://gith
 Satellites connect to the same MQTT broker they already use for sensors (Home
 Assistant, ESPHome, Tasmota, ESP32) and exchange encrypted `HiveMessage` frames
 over that broker.  No bespoke inbound port or WebSocket stack is required on the
-hub; both hub and satellites are broker clients.
+master; both master and satellites are broker clients.
 
 ## The broker-mediated model
 
 ```
-satellite ──pub──▶  broker  ◀──sub── hub
-hub       ──pub──▶  broker  ◀──sub── satellite
+satellite ──pub──▶  broker  ◀──sub── master
+master       ──pub──▶  broker  ◀──sub── satellite
 ```
 
-The hub runs ONE paho-mqtt client.  Logical per-satellite connections are
+The master runs ONE paho-mqtt client.  Logical per-satellite connections are
 derived from the topic hierarchy.
 
 ### Topic scheme
 
 ```
-<prefix>/<hub_id>/c2s/<satellite_id>     # satellite → hub  (hub subscribes …/c2s/+)
-<prefix>/<hub_id>/s2c/<satellite_id>     # hub → satellite
-<prefix>/<hub_id>/status/<satellite_id>  # retained LWT presence (online / offline)
+<prefix>/<name>/c2s/<satellite_id>     # satellite → master  (master subscribes …/c2s/+)
+<prefix>/<name>/s2c/<satellite_id>     # master → satellite
+<prefix>/<name>/status/<satellite_id>  # retained LWT presence (online / offline)
 ```
 
-Defaults: `prefix = hivemind`, `hub_id` = node identity name.
+Defaults: `prefix = hivemind`, `name` = node identity name.
 
 ### Privacy option
 
@@ -49,7 +49,7 @@ Two independent layers:
 
 2. **HiveMind-level** — the HELLO / HANDSHAKE exchange embedded in the
    encrypted payload, identical to the WebSocket path.  The satellite's MQTT
-   username **must equal** its HiveMind access key so the hub can look up the
+   username **must equal** its HiveMind access key so the master can look up the
    DB record on first contact.
 
 ## QoS
@@ -65,13 +65,13 @@ Two independent layers:
 |---|---|---|
 | `broker_host` | `localhost` | MQTT broker hostname or IP |
 | `broker_port` | `1883` | Broker port (8883 for TLS) |
-| `broker_username` | — | MQTT username for the hub |
-| `broker_password` | — | MQTT password for the hub |
+| `broker_username` | — | MQTT username for the master |
+| `broker_password` | — | MQTT password for the master |
 | `tls` | `false` | Enable TLS |
 | `tls_ca_certs` | — | Path to CA bundle |
 | `tls_certfile` | — | Path to client cert (mTLS) |
 | `tls_keyfile` | — | Path to client key (mTLS) |
-| `hub_id` | node identity name | Hub identifier in topics |
+| `name` | node identity name | Node name in topics |
 | `topic_prefix` | `hivemind` | Topic namespace prefix |
 | `qos` | `1` | Default MQTT QoS for control frames |
 | `hash_topics` | `false` | Hash `satellite_id` in topics |
@@ -87,7 +87,7 @@ server = NetworkProtocolFactory.create(
     config={
         "broker_host": "192.168.1.100",
         "broker_port": 1883,
-        "hub_id": "living-room-hub",
+        "name": "living-room-master",
     },
 )
 server.run()   # blocks

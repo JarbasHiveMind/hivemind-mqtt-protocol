@@ -10,6 +10,7 @@ jobs:
     uses: OpenVoiceOS/gh-automations/.github/workflows/coverage.yml@dev
     with:
       python_version: '3.11'
+      pre_install_pip: '"hivescope==0.5.0a2"'
       coverage_source: 'hivemind_mqtt_protocol'
       test_path: 'tests/'
       min_coverage: 0

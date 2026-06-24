@@ -7,13 +7,13 @@ MQTT bus rather than opening a dedicated WebSocket connection.
 
 Topology
 --------
-The hub runs ONE paho-mqtt client that connects to an external broker.  There
+The master node runs ONE paho-mqtt client that connects to an external broker.  There
 is no accept() loop; logical per-satellite "connections" are derived from the
 topic hierarchy:
 
-    <prefix>/<hub_id>/c2s/<satellite_id>     satellite → hub (hub subscribes …/c2s/+)
-    <prefix>/<hub_id>/s2c/<satellite_id>     hub → satellite
-    <prefix>/<hub_id>/status/<satellite_id>  retained LWT presence (online/offline)
+    <prefix>/<name>/c2s/<satellite_id>     satellite → master (master subscribes …/c2s/+)
+    <prefix>/<name>/s2c/<satellite_id>     master → satellite
+    <prefix>/<name>/status/<satellite_id>  retained LWT presence (online/offline)
 
 Crypto
 ------
@@ -72,7 +72,7 @@ class HiveMindMqttProtocol(NetworkProtocol):
         tls_ca_certs       (str)  None  — path to CA bundle
         tls_certfile       (str)  None  — path to client cert (mTLS)
         tls_keyfile        (str)  None  — path to client key  (mTLS)
-        hub_id             (str)  NodeIdentity.name or "hivemind-hub"
+        name             (str)  NodeIdentity.name or "unnamed-node"
         topic_prefix       (str)  "hivemind"
         qos                (int)  1
         hash_topics        (bool) False — hash satellite_id in topics for privacy
@@ -96,8 +96,8 @@ class HiveMindMqttProtocol(NetworkProtocol):
     def _cfg(self, key: str, default: Any = None) -> Any:
         return self.config.get(key, default)
 
-    def _hub_id(self) -> str:
-        return str(self._cfg("hub_id") or self.identity.name or "hivemind-hub")
+    def _name(self) -> str:
+        return str(self._cfg("name") or self.identity.name or "unnamed-node")
 
     def _prefix(self) -> str:
         return str(self._cfg("topic_prefix") or "hivemind")
@@ -119,23 +119,23 @@ class HiveMindMqttProtocol(NetworkProtocol):
 
     def c2s_topic(self, satellite_id: str) -> str:
         """Inbound topic: satellite → hub."""
-        return f"{self._prefix()}/{self._hub_id()}/c2s/{self._sat_topic_seg(satellite_id)}"
+        return f"{self._prefix()}/{self._name()}/c2s/{self._sat_topic_seg(satellite_id)}"
 
     def s2c_topic(self, satellite_id: str) -> str:
-        """Outbound topic: hub → satellite."""
-        return f"{self._prefix()}/{self._hub_id()}/s2c/{self._sat_topic_seg(satellite_id)}"
+        """Outbound topic: master → satellite."""
+        return f"{self._prefix()}/{self._name()}/s2c/{self._sat_topic_seg(satellite_id)}"
 
     def status_topic(self, satellite_id: str) -> str:
         """Retained LWT presence topic."""
-        return f"{self._prefix()}/{self._hub_id()}/status/{self._sat_topic_seg(satellite_id)}"
+        return f"{self._prefix()}/{self._name()}/status/{self._sat_topic_seg(satellite_id)}"
 
     def c2s_wildcard(self) -> str:
         """Wildcard subscription for all satellites' c2s traffic."""
-        return f"{self._prefix()}/{self._hub_id()}/c2s/+"
+        return f"{self._prefix()}/{self._name()}/c2s/+"
 
     def status_wildcard(self) -> str:
         """Wildcard subscription for all satellites' status topics."""
-        return f"{self._prefix()}/{self._hub_id()}/status/+"
+        return f"{self._prefix()}/{self._name()}/status/+"
 
     # satellite_id extraction ------------------------------------------
 
@@ -143,7 +143,7 @@ class HiveMindMqttProtocol(NetworkProtocol):
     def _satellite_id_from_topic(topic: str) -> Optional[str]:
         """Parse the satellite_id segment from a c2s or status topic."""
         parts = topic.split("/")
-        # expected: <prefix>/<hub_id>/<segment>/<satellite_id>
+        # expected: <prefix>/<name>/<segment>/<satellite_id>
         if len(parts) >= 4:
             return parts[-1]
         return None
@@ -163,7 +163,7 @@ class HiveMindMqttProtocol(NetworkProtocol):
         Returns the new connection or None if auth fails.
         """
         prefix = self._prefix()
-        hub_id = self._hub_id()
+        name = self._name()
         mqttclient = self._mqtt
         qos_fn = self._qos
         s2c = self.s2c_topic(satellite_id)
@@ -340,9 +340,9 @@ class HiveMindMqttProtocol(NetworkProtocol):
 
         broker_host: str = str(self._cfg("broker_host") or "localhost")
         broker_port: int = int(self._cfg("broker_port") or 1883)
-        hub_id = self._hub_id()
+        name = self._name()
 
-        client_id = f"hivemind-hub-{hub_id}"
+        client_id = f"hivemind-node-{name}"
         self._mqtt = mqtt.Client(client_id=client_id)
 
         # Broker-level auth.
@@ -360,7 +360,7 @@ class HiveMindMqttProtocol(NetworkProtocol):
             )
 
         # Hub's own LWT — signals the hub going offline to any listener.
-        hub_status_topic = f"{self._prefix()}/{hub_id}/status/hub"
+        hub_status_topic = f"{self._prefix()}/{name}/status/hub"
         self._mqtt.will_set(hub_status_topic, _OFFLINE, qos=1, retain=True)
 
         self._mqtt.on_connect = self._on_connect
@@ -384,5 +384,5 @@ class HiveMindMqttProtocol(NetworkProtocol):
             )
             t.start()
 
-        LOG.info(f"[MQTT] listener started — broker={broker_host}:{broker_port}, hub_id={hub_id!r}")
+        LOG.info(f"[MQTT] listener started — broker={broker_host}:{broker_port}, name={name!r}")
         self._mqtt.loop_forever()  # blocking — mirrors tornado ioloop.start()

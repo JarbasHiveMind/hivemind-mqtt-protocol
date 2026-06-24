@@ -7,7 +7,7 @@ hivemind_plugin_manager.protocols.NetworkProtocol  (abstract)
         │
         └─ hivemind_mqtt_protocol.HiveMindMqttProtocol
                 │
-                └─ paho.mqtt.client.Client (ONE broker connection for the hub)
+                └─ paho.mqtt.client.Client (ONE broker connection for the master)
 ```
 
 `HiveMindMqttProtocol.run()` is the blocking server entry point called by
@@ -17,26 +17,26 @@ and subscribes to the wildcard topic for incoming satellite messages.
 ## Broker-mediated topology
 
 ```
-satellite ──pub──▶  broker  ◀──sub── hub
-hub       ──pub──▶  broker  ◀──sub── satellite
+satellite ──pub──▶  broker  ◀──sub── master
+master       ──pub──▶  broker  ◀──sub── satellite
 ```
 
-The hub does not bind any TCP port. Both hub and satellites are broker
+The master does not bind any TCP port. Both master and satellites are broker
 **clients**. This means:
 
-- No inbound firewall rule is needed on the hub.
-- Any satellite that can reach the broker can reach the hub.
+- No inbound firewall rule is needed on the master.
+- Any satellite that can reach the broker can reach the master.
 - The broker handles delivery, buffering (QoS 1), and presence (LWT).
 
 ## Topic scheme
 
 ```
-<prefix>/<hub_id>/c2s/<satellite_id>     # satellite → hub  (hub subscribes …/c2s/+)
-<prefix>/<hub_id>/s2c/<satellite_id>     # hub → satellite
-<prefix>/<hub_id>/status/<satellite_id>  # retained LWT presence (online / offline)
+<prefix>/<name>/c2s/<satellite_id>     # satellite → master  (master subscribes …/c2s/+)
+<prefix>/<name>/s2c/<satellite_id>     # master → satellite
+<prefix>/<name>/status/<satellite_id>  # retained LWT presence (online / offline)
 ```
 
-Defaults: `prefix = hivemind`, `hub_id` = node identity name.
+Defaults: `prefix = hivemind`, `name` = node identity name.
 
 The `satellite_id` is the satellite's HiveMind access key (or its SHA-256
 hash when `hash_topics: true` is set).
@@ -58,7 +58,7 @@ No additional encryption layer is added by this transport.
 
 2. **HiveMind-level**: the HELLO / HANDSHAKE exchange embedded in the encrypted
    payload, identical to the WebSocket path. The satellite's MQTT username must
-   equal its HiveMind access key so the hub can look up the DB record on first
+   equal its HiveMind access key so the master can look up the DB record on first
    contact.
 
 ## QoS

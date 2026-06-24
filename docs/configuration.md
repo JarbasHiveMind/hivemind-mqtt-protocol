@@ -7,13 +7,13 @@ All settings are passed in the `hivemind-mqtt-plugin` block of
 |---|---|---|
 | `broker_host` | `localhost` | MQTT broker hostname or IP. |
 | `broker_port` | `1883` | Broker port (use `8883` for TLS). |
-| `broker_username` | — | MQTT username for the hub. |
-| `broker_password` | — | MQTT password for the hub. |
+| `broker_username` | — | MQTT username for the master. |
+| `broker_password` | — | MQTT password for the master. |
 | `tls` | `false` | Enable TLS. |
 | `tls_ca_certs` | — | Path to CA bundle for broker TLS verification. |
 | `tls_certfile` | — | Path to client certificate (mTLS). |
 | `tls_keyfile` | — | Path to client key (mTLS). |
-| `hub_id` | node identity name | Hub identifier used in topic paths. |
+| `name` | node identity name | Node name used in topic paths. |
 | `topic_prefix` | `hivemind` | Topic namespace prefix. |
 | `qos` | `1` | Default MQTT QoS for control frames. |
 | `hash_topics` | `false` | SHA-256-hash the `satellite_id` segment in topics. |
@@ -28,7 +28,7 @@ All settings are passed in the `hivemind-mqtt-plugin` block of
     "hivemind-mqtt-plugin": {
       "broker_host": "192.168.1.100",
       "broker_port": 1883,
-      "hub_id": "living-room-hub"
+      "name": "living-room-master"
     }
   }
 }
@@ -43,7 +43,7 @@ All settings are passed in the `hivemind-mqtt-plugin` block of
     "hivemind-mqtt-plugin": {
       "broker_host": "192.168.1.100",
       "broker_port": 1883,
-      "broker_username": "hivemind-hub",
+      "broker_username": "hivemind-node",
       "broker_password": "secret"
     }
   }
@@ -77,8 +77,8 @@ All settings are passed in the `hivemind-mqtt-plugin` block of
       "broker_port": 8883,
       "tls": true,
       "tls_ca_certs": "/path/to/ca.crt",
-      "tls_certfile": "/path/to/hub.crt",
-      "tls_keyfile": "/path/to/hub.key"
+      "tls_certfile": "/path/to/master.crt",
+      "tls_keyfile": "/path/to/master.key"
     }
   }
 }
