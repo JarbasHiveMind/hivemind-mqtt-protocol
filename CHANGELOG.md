@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.1a3](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/tree/0.1.1a3) (2026-06-25)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/compare/0.1.1a2...0.1.1a3)
+
+**Merged pull requests:**
+
+- refactor: MQTT topic uses api\_key directly — drop master-name namespace [\#5](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/pull/5) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.1.1a2](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/tree/0.1.1a2) (2026-06-24)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/compare/0.1.1a1...0.1.1a2)
