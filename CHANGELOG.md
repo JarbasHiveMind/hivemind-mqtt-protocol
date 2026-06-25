@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.0a1](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/tree/0.2.0a1) (2026-06-25)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/compare/0.1.1a3...0.2.0a1)
+
+**Merged pull requests:**
+
+- feat: real MQTT end-to-end tests over an in-process broker [\#6](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/pull/6) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.1.1a3](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/tree/0.1.1a3) (2026-06-25)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/compare/0.1.1a2...0.1.1a3)
