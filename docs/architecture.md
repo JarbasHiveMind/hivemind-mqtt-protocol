@@ -7,7 +7,7 @@ hivemind_plugin_manager.protocols.NetworkProtocol  (abstract)
         │
         └─ hivemind_mqtt_protocol.HiveMindMqttProtocol
                 │
-                └─ paho.mqtt.client.Client (ONE broker connection for the master)
+                └─ paho.mqtt.client.Client (ONE broker connection for the hub)
 ```
 
 `HiveMindMqttProtocol.run()` is the blocking server entry point called by
@@ -17,29 +17,31 @@ and subscribes to the wildcard topic for incoming satellite messages.
 ## Broker-mediated topology
 
 ```
-satellite ──pub──▶  broker  ◀──sub── master
-master       ──pub──▶  broker  ◀──sub── satellite
+satellite ──pub──▶  broker  ◀──sub── hub
+hub       ──pub──▶  broker  ◀──sub── satellite
 ```
 
-The master does not bind any TCP port. Both master and satellites are broker
+The hub does not bind any TCP port. Both hub and satellites are broker
 **clients**. This means:
 
-- No inbound firewall rule is needed on the master.
-- Any satellite that can reach the broker can reach the master.
+- No inbound firewall rule is needed on the hub.
+- Any satellite that can reach the broker can reach the hub.
 - The broker handles delivery, buffering (QoS 1), and presence (LWT).
 
 ## Topic scheme
 
 ```
-<prefix>/<name>/c2s/<satellite_id>     # satellite → master  (master subscribes …/c2s/+)
-<prefix>/<name>/s2c/<satellite_id>     # master → satellite
-<prefix>/<name>/status/<satellite_id>  # retained LWT presence (online / offline)
+<prefix>/<api_key>/in      # satellite → master  (master subscribes <prefix>/+/in)
+<prefix>/<api_key>/out     # master → satellite
+<prefix>/<api_key>/status  # retained LWT presence (online / offline)
 ```
 
-Defaults: `prefix = hivemind`, `name` = node identity name.
+Defaults: `prefix = hivemind`.
 
-The `satellite_id` is the satellite's HiveMind access key (or its SHA-256
-hash when `
+The `api_key` segment is the satellite's HiveMind access key. It is unique per
+client, so the master can look up the matching DB record from the topic as soon
+as the first frame arrives; without the matching crypto key the payload
+ciphertext remains useless.
 
 ## Crypto
 
@@ -54,12 +56,12 @@ No additional encryption layer is added by this transport.
 1. **Broker-level**: MQTT `username` / `password` (config keys `broker_username` /
    `broker_password`), or TLS client-cert (config keys `tls_certfile` /
    `tls_keyfile`). Configure the broker's ACL so each satellite may only publish
-   to its own `c2s/<key>` topic and subscribe to its own `s2c/<key>` topic.
+   to its own `<api_key>/in` topic and subscribe to its own `<api_key>/out` topic.
 
 2. **HiveMind-level**: the HELLO / HANDSHAKE exchange embedded in the encrypted
-   payload, identical to the WebSocket path. The satellite's MQTT username must
-   equal its HiveMind access key so the master can look up the DB record on first
-   contact.
+   payload, identical to the WebSocket path. The `api_key` IS the topic segment,
+   so the master can look up the DB record on first contact without a separate
+   MQTT-layer credential handshake.
 
 ## QoS
 
@@ -71,16 +73,10 @@ No additional encryption layer is added by this transport.
 ## Idle eviction
 
 Satellites that send no messages for `idle_timeout` seconds are evicted
-(treated as disconnected). Their LWT `status/<satellite_id>` topic is
+(treated as disconnected). Their LWT `<api_key>/status` topic is
 checked on eviction. Set `idle_timeout: 0` to disable eviction.
 
 Default: 300 seconds.
-
-## Privacy: hashed topics
-
-Set `
-16-character hex SHA-256 hash. The broker then sees only an opaque token —
-useful when the broker is shared or untrusted.
 
 ## Authoring a transport plugin
 
