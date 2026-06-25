@@ -5,33 +5,29 @@ An MQTT broker-mediated network protocol plugin for [hivemind-core](https://gith
 Satellites connect to the same MQTT broker they already use for sensors (Home
 Assistant, ESPHome, Tasmota, ESP32) and exchange encrypted `HiveMessage` frames
 over that broker.  No bespoke inbound port or WebSocket stack is required on the
-master; both master and satellites are broker clients.
+hub; both hub and satellites are broker clients.
 
 ## The broker-mediated model
 
 ```
-satellite ──pub──▶  broker  ◀──sub── master
-master       ──pub──▶  broker  ◀──sub── satellite
+satellite ──pub──▶  broker  ◀──sub── hub
+hub       ──pub──▶  broker  ◀──sub── satellite
 ```
 
-The master runs ONE paho-mqtt client.  Logical per-satellite connections are
+The hub runs ONE paho-mqtt client.  Logical per-satellite connections are
 derived from the topic hierarchy.
 
 ### Topic scheme
 
 ```
-<prefix>/<name>/c2s/<satellite_id>     # satellite → master  (master subscribes …/c2s/+)
-<prefix>/<name>/s2c/<satellite_id>     # master → satellite
-<prefix>/<name>/status/<satellite_id>  # retained LWT presence (online / offline)
+<prefix>/<api_key>/in      # satellite → master  (master subscribes <prefix>/+/in)
+<prefix>/<api_key>/out     # master → satellite
+<prefix>/<api_key>/status  # retained LWT presence (online / offline)
 ```
 
-Defaults: `prefix = hivemind`, `name` = node identity name.
-
-### Privacy option
-
-Set `hash_topics: true` to SHA-256-hash the `satellite_id` segment.  The broker
-then sees only an opaque 16-char hex token — useful when the broker is shared or
-untrusted.
+Defaults: `prefix = hivemind`. Each satellite's HiveMind access key (`api_key`)
+is its own topic segment — it is unique per client and identifies which DB
+record to look up as soon as the first frame arrives.
 
 ## Crypto
 
@@ -45,12 +41,12 @@ Two independent layers:
 
 1. **Broker-level** — MQTT `username` / `password`, or TLS client-cert.
    Configure the broker's ACL so each satellite may only publish to its own
-   `c2s/<key>` topic and subscribe to its own `s2c/<key>` topic.
+   `<api_key>/in` topic and subscribe to its own `<api_key>/out` topic.
 
 2. **HiveMind-level** — the HELLO / HANDSHAKE exchange embedded in the
-   encrypted payload, identical to the WebSocket path.  The satellite's MQTT
-   username **must equal** its HiveMind access key so the master can look up the
-   DB record on first contact.
+   encrypted payload, identical to the WebSocket path.  The `api_key` IS the
+   topic segment, so the master knows which DB record to look up as soon as the
+   first frame arrives.
 
 ## QoS
 
@@ -65,16 +61,14 @@ Two independent layers:
 |---|---|---|
 | `broker_host` | `localhost` | MQTT broker hostname or IP |
 | `broker_port` | `1883` | Broker port (8883 for TLS) |
-| `broker_username` | — | MQTT username for the master |
-| `broker_password` | — | MQTT password for the master |
+| `broker_username` | — | MQTT broker username for the master |
+| `broker_password` | — | MQTT broker password for the master |
 | `tls` | `false` | Enable TLS |
 | `tls_ca_certs` | — | Path to CA bundle |
 | `tls_certfile` | — | Path to client cert (mTLS) |
 | `tls_keyfile` | — | Path to client key (mTLS) |
-| `name` | node identity name | Node name in topics |
 | `topic_prefix` | `hivemind` | Topic namespace prefix |
 | `qos` | `1` | Default MQTT QoS for control frames |
-| `hash_topics` | `false` | Hash `satellite_id` in topics |
 | `idle_timeout` | `300` | Seconds of silence before evicting a peer (0 = off) |
 
 ## Usage
@@ -87,7 +81,6 @@ server = NetworkProtocolFactory.create(
     config={
         "broker_host": "192.168.1.100",
         "broker_port": 1883,
-        "name": "living-room-master",
     },
 )
 server.run()   # blocks
@@ -95,9 +88,9 @@ server.run()   # blocks
 
 ## Satellite side
 
-The matching satellite client (publish to `c2s`, subscribe to `s2c`, set the
-LWT on `status/<satellite_id>`) is a planned follow-up as a transport option in
-`hivemind-bus-client` or a dedicated `hivemind-mqtt-client`.  An
+The matching satellite client (publish to `<api_key>/in`, subscribe to
+`<api_key>/out`, set the LWT on `<api_key>/status`) is a planned follow-up as a
+transport option in `hivemind-bus-client` or a dedicated `hivemind-mqtt-client`.  An
 ESPHome / Tasmota external-component example for ESP32 satellites is also
 planned.
 

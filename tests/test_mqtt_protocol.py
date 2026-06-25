@@ -144,12 +144,12 @@ def _make_protocol(config=None):
     """Return a protocol instance with a mocked hm_protocol and mqtt client."""
     hm = MagicMock(name="hm_protocol")
     hm.identity = MagicMock(name="identity")
-    hm.identity.name = "testhub"
+    hm.identity.name = "testkey"
     hm.handshake_enabled = True
     hm.require_crypto = False
-    # Always inject name via config so _name() doesn't go through the
+    # Always inject api_key via config so _api_key() doesn't go through the
     # identity property chain (MagicMock.name is a reserved attribute).
-    base_config = {"name": "testhub"}
+    base_config = {"api_key": "testkey"}
     if config:
         base_config.update(config)
     config = base_config
@@ -187,44 +187,45 @@ def _make_protocol(config=None):
 class TestTopics:
     def test_c2s_topic_default_prefix(self):
         p = _make_protocol()
-        assert p.c2s_topic("sat1") == "hivemind/testhub/c2s/sat1"
+        assert p.in_topic("sat1") == "hivemind/sat1/in"
 
     def test_s2c_topic_default_prefix(self):
         p = _make_protocol()
-        assert p.s2c_topic("sat1") == "hivemind/testhub/s2c/sat1"
+        assert p.out_topic("sat1") == "hivemind/sat1/out"
 
     def test_status_topic_default_prefix(self):
         p = _make_protocol()
-        assert p.status_topic("sat1") == "hivemind/testhub/status/sat1"
+        assert p.status_topic("sat1") == "hivemind/sat1/status"
 
-    def test_custom_prefix_and_name(self):
-        p = _make_protocol({"topic_prefix": "hm", "name": "myhub"})
-        assert p.c2s_topic("x") == "hm/myhub/c2s/x"
+    def test_custom_prefix_and_api_key(self):
+        p = _make_protocol({"topic_prefix": "hm", "api_key": "mykey"})
+        assert p.in_topic("x") == "hm/x/in"
 
     def test_c2s_wildcard(self):
         p = _make_protocol()
-        assert p.c2s_wildcard() == "hivemind/testhub/c2s/+"
+        assert p.in_wildcard() == "hivemind/+/in"
 
     def test_status_wildcard(self):
         p = _make_protocol()
-        assert p.status_wildcard() == "hivemind/testhub/status/+"
+        assert p.status_wildcard() == "hivemind/+/status"
 
     def test_hash_topics(self):
+        pytest.skip("hash_topics removed — api_key IS the topic, no hashing needed")
         p = _make_protocol({"hash_topics": True})
         sat_id = "mysat"
         expected = hashlib.sha256(sat_id.encode()).hexdigest()[:16]
-        assert p.c2s_topic(sat_id) == f"hivemind/testhub/c2s/{expected}"
+        assert p.in_topic(sat_id) == f"hivemind/{sat_id}/in"
 
-    def test_satellite_id_from_c2s_topic(self):
-        topic = "hivemind/testhub/c2s/sat42"
-        assert HiveMindMqttProtocol._satellite_id_from_topic(topic) == "sat42"
+    def test_api_key_from_in_topic(self):
+        topic = "hivemind/sat42/in"
+        assert HiveMindMqttProtocol._api_key_from_topic(topic) == "sat42"
 
-    def test_satellite_id_from_status_topic(self):
-        topic = "hivemind/myhub/status/sat99"
-        assert HiveMindMqttProtocol._satellite_id_from_topic(topic) == "sat99"
+    def test_api_key_from_status_topic(self):
+        topic = "hivemind/sat99/status"
+        assert HiveMindMqttProtocol._api_key_from_topic(topic) == "sat99"
 
-    def test_satellite_id_short_topic_returns_none(self):
-        assert HiveMindMqttProtocol._satellite_id_from_topic("bad") is None
+    def test_api_key_short_topic_returns_none(self):
+        assert HiveMindMqttProtocol._api_key_from_topic("bad") is None
 
 
 # ---------------------------------------------------------------------------
@@ -235,13 +236,13 @@ class TestTopics:
 class TestPeerMap:
     def test_new_peer_added_to_map(self):
         p = _make_protocol()
-        conn = p._build_client_connection("sat1", "sat1", "sat1")
+        conn = p._build_client_connection("sat1")
         assert "sat1" in p._peers
         assert conn is not None
 
     def test_known_peer_not_duplicated(self):
         p = _make_protocol()
-        p._build_client_connection("sat1", "sat1", "sat1")
+        p._build_client_connection("sat1")
         first_conn = p._peers["sat1"]
         # Simulating message from known peer — we do NOT call _build again.
         assert p._peers["sat1"] is first_conn
@@ -249,19 +250,19 @@ class TestPeerMap:
     def test_invalid_key_not_added(self):
         p = _make_protocol()
         p.hm_protocol.db.get_client_by_api_key.return_value = None
-        conn = p._build_client_connection("bad", "bad", "bad")
+        conn = p._build_client_connection("bad")
         assert conn is None
         assert "bad" not in p._peers
 
     def test_handle_new_client_called(self):
         p = _make_protocol()
-        p._build_client_connection("sat1", "sat1", "sat1")
+        p._build_client_connection("sat1")
         p.hm_protocol.handle_new_client.assert_called_once()
 
     def test_invalid_key_triggers_invalid_key_handler(self):
         p = _make_protocol()
         p.hm_protocol.db.get_client_by_api_key.return_value = None
-        p._build_client_connection("bad", "bad", "bad")
+        p._build_client_connection("bad")
         p.hm_protocol.handle_invalid_key_connected.assert_called_once()
 
 
@@ -273,18 +274,18 @@ class TestPeerMap:
 class TestSendMsg:
     def test_send_msg_publishes_to_s2c(self):
         p = _make_protocol()
-        p._build_client_connection("sat1", "sat1", "sat1")
+        p._build_client_connection("sat1")
         conn = p._peers["sat1"]
 
         payload = b"encrypted-frame"
         conn.send_msg(payload, False)
 
-        expected_topic = p.s2c_topic("sat1")
+        expected_topic = p.out_topic("sat1")
         p._mqtt.publish.assert_called_with(expected_topic, payload, qos=1)
 
     def test_send_msg_bin_uses_qos0(self):
         p = _make_protocol()
-        p._build_client_connection("sat1", "sat1", "sat1")
+        p._build_client_connection("sat1")
         conn = p._peers["sat1"]
 
         conn.send_msg(b"audio", True)
@@ -295,12 +296,12 @@ class TestSendMsg:
 
     def test_send_msg_str_payload_encoded(self):
         p = _make_protocol()
-        p._build_client_connection("sat1", "sat1", "sat1")
+        p._build_client_connection("sat1")
         conn = p._peers["sat1"]
 
         conn.send_msg("string-payload", False)
 
-        topic = p.s2c_topic("sat1")
+        topic = p.out_topic("sat1")
         p._mqtt.publish.assert_called_with(topic, b"string-payload", qos=1)
 
 
@@ -312,7 +313,7 @@ class TestSendMsg:
 class TestDisconnect:
     def test_disconnect_removes_from_map(self):
         p = _make_protocol()
-        p._build_client_connection("sat1", "sat1", "sat1")
+        p._build_client_connection("sat1")
         assert "sat1" in p._peers
 
         p._disconnect_peer("sat1")
@@ -321,7 +322,7 @@ class TestDisconnect:
 
     def test_disconnect_calls_handle_client_disconnected(self):
         p = _make_protocol()
-        p._build_client_connection("sat1", "sat1", "sat1")
+        p._build_client_connection("sat1")
         p.hm_protocol.handle_client_disconnected.reset_mock()
 
         p._disconnect_peer("sat1")
@@ -330,7 +331,7 @@ class TestDisconnect:
 
     def test_do_disconnect_publishes_tombstone(self):
         p = _make_protocol()
-        p._build_client_connection("sat1", "sat1", "sat1")
+        p._build_client_connection("sat1")
         conn = p._peers["sat1"]
         p._mqtt.publish.reset_mock()
 
@@ -361,10 +362,10 @@ class TestLWT:
 
     def test_lwt_offline_triggers_disconnect(self):
         p = _make_protocol()
-        p._build_client_connection("sat1", "sat1", "sat1")
+        p._build_client_connection("sat1")
         p.hm_protocol.handle_client_disconnected.reset_mock()
 
-        msg = self._make_msg("hivemind/testhub/status/sat1", b"offline")
+        msg = self._make_msg("hivemind/sat1/status", b"offline")
         p._on_message(p._mqtt, None, msg)
 
         p.hm_protocol.handle_client_disconnected.assert_called_once()
@@ -372,20 +373,20 @@ class TestLWT:
 
     def test_lwt_online_ignored(self):
         p = _make_protocol()
-        p._build_client_connection("sat1", "sat1", "sat1")
+        p._build_client_connection("sat1")
         p.hm_protocol.handle_client_disconnected.reset_mock()
 
-        msg = self._make_msg("hivemind/testhub/status/sat1", b"online")
+        msg = self._make_msg("hivemind/sat1/status", b"online")
         p._on_message(p._mqtt, None, msg)
 
         p.hm_protocol.handle_client_disconnected.assert_not_called()
 
     def test_c2s_message_routed_to_handle_message(self):
         p = _make_protocol()
-        p._build_client_connection("sat1", "sat1", "sat1")
+        p._build_client_connection("sat1")
         p.hm_protocol.handle_message.reset_mock()
 
-        msg = self._make_msg("hivemind/testhub/c2s/sat1", b"payload")
+        msg = self._make_msg("hivemind/sat1/in", b"payload")
         p._on_message(p._mqtt, None, msg)
 
         p.hm_protocol.handle_message.assert_called_once()
@@ -394,7 +395,7 @@ class TestLWT:
         p = _make_protocol()
         assert "newsat" not in p._peers
 
-        msg = self._make_msg("hivemind/testhub/c2s/newsat", b"payload")
+        msg = self._make_msg("hivemind/newsat/in", b"payload")
         p._on_message(p._mqtt, None, msg)
 
         assert "newsat" in p._peers
@@ -414,7 +415,7 @@ class TestLWT:
 class TestIdleSweep:
     def test_stale_peer_evicted(self):
         p = _make_protocol()
-        p._build_client_connection("sat1", "sat1", "sat1")
+        p._build_client_connection("sat1")
         # Back-date last_seen to force eviction.
         p._last_seen["sat1"] = time.monotonic() - 9999
 
@@ -474,9 +475,9 @@ def test_version_module_exposes_constants_and_string():
 
 
 class TestConfig:
-    def test_default_name_falls_back_to_config(self):
-        p = _make_protocol({"name": "myhub"})
-        assert p._name() == "myhub"
+    def test_default_prefix_fallback(self):
+        p = _make_protocol({"topic_prefix": "myhive"})
+        assert p._prefix() == "myhive"
 
     def test_default_prefix(self):
         p = _make_protocol()
@@ -507,7 +508,7 @@ class TestOnConnect:
         p._on_connect(mock_client, None, {}, 0)
 
         calls = [c[0][0] for c in mock_client.subscribe.call_args_list]
-        assert p.c2s_wildcard() in calls
+        assert p.in_wildcard() in calls
         assert p.status_wildcard() in calls
 
     def test_on_connect_failed_rc_skips_subscribe(self):
@@ -527,7 +528,7 @@ class TestRequireCrypto:
         p = _make_protocol()
         p.hm_protocol.handshake_enabled = False
         p.hm_protocol.require_crypto = True
-        conn = p._build_client_connection("sat1", "sat1", "sat1")
+        conn = p._build_client_connection("sat1")
         assert conn is None
         p.hm_protocol.handle_invalid_protocol_version.assert_called_once()
 
@@ -537,7 +538,7 @@ class TestRequireCrypto:
         p.hm_protocol.require_crypto = True
         user = p.hm_protocol.db.get_client_by_api_key.return_value
         user.crypto_key = "some-key"
-        conn = p._build_client_connection("sat1", "sat1", "sat1")
+        conn = p._build_client_connection("sat1")
         assert conn is not None
 
 
@@ -551,7 +552,7 @@ class TestPasswordHandshake:
         p = _make_protocol()
         user = p.hm_protocol.db.get_client_by_api_key.return_value
         user.password = "s3cr3t"
-        conn = p._build_client_connection("sat1", "sat1", "sat1")
+        conn = p._build_client_connection("sat1")
         assert conn is not None
         assert conn.pswd_handshake is not None
 
@@ -559,7 +560,7 @@ class TestPasswordHandshake:
         p = _make_protocol()
         user = p.hm_protocol.db.get_client_by_api_key.return_value
         user.password = None
-        conn = p._build_client_connection("sat1", "sat1", "sat1")
+        conn = p._build_client_connection("sat1")
         assert conn is not None
         assert conn.pswd_handshake is None
 
@@ -577,7 +578,7 @@ class TestOnMessageEdgeCases:
         return m
 
     def test_unknown_segment_ignored(self):
-        """Topic segment that is neither 'c2s' nor 'status' → returns early (line 278)."""
+        """Topic segment that is neither 'in' nor 'status' → returns early (line 278)."""
         p = _make_protocol()
         msg = self._make_msg("hivemind/testhub/other/sat1", b"data")
         p._on_message(p._mqtt, None, msg)
@@ -587,19 +588,19 @@ class TestOnMessageEdgeCases:
         """Auth failure on unknown satellite drops frame (line 301)."""
         p = _make_protocol()
         p.hm_protocol.db.get_client_by_api_key.return_value = None
-        msg = self._make_msg("hivemind/testhub/c2s/newsat", b"data")
+        msg = self._make_msg("hivemind/newsat/in", b"data")
         p._on_message(p._mqtt, None, msg)
         p.hm_protocol.handle_message.assert_not_called()
 
     def test_decode_error_drops_frame(self):
         """conn.decode() raises → logs warning and drops frame (lines 305-307)."""
         p = _make_protocol()
-        p._build_client_connection("sat1", "sat1", "sat1")
+        p._build_client_connection("sat1")
         conn = p._peers["sat1"]
         conn.decode = MagicMock(side_effect=ValueError("bad frame"))
         p.hm_protocol.handle_message.reset_mock()
 
-        msg = self._make_msg("hivemind/testhub/c2s/sat1", b"garbage")
+        msg = self._make_msg("hivemind/sat1/in", b"garbage")
         p._on_message(p._mqtt, None, msg)
 
         p.hm_protocol.handle_message.assert_not_called()
@@ -607,11 +608,11 @@ class TestOnMessageEdgeCases:
     def test_known_peer_last_seen_updated(self):
         """Inbound c2s from known peer updates _last_seen timestamp."""
         p = _make_protocol()
-        p._build_client_connection("sat1", "sat1", "sat1")
+        p._build_client_connection("sat1")
         old_ts = p._last_seen["sat1"] - 100
         p._last_seen["sat1"] = old_ts
 
-        msg = self._make_msg("hivemind/testhub/c2s/sat1", b"payload")
+        msg = self._make_msg("hivemind/sat1/in", b"payload")
         p._on_message(p._mqtt, None, msg)
 
         assert p._last_seen["sat1"] > old_ts
@@ -646,7 +647,7 @@ class TestIdleSweepDirect:
         """Run _idle_sweep directly with a patched time.sleep so the loop
         fires once and then is interrupted."""
         p = _make_protocol()
-        p._build_client_connection("sat1", "sat1", "sat1")
+        p._build_client_connection("sat1")
         # Make the peer appear stale.
         p._last_seen["sat1"] = time.monotonic() - 9999
         p.hm_protocol.handle_client_disconnected.reset_mock()
@@ -673,7 +674,7 @@ class TestIdleSweepDirect:
     def test_idle_sweep_keeps_fresh_peer(self):
         """Fresh peer must NOT be evicted."""
         p = _make_protocol()
-        p._build_client_connection("sat1", "sat1", "sat1")
+        p._build_client_connection("sat1")
         p._last_seen["sat1"] = time.monotonic()  # fresh
         p.hm_protocol.handle_client_disconnected.reset_mock()
 
@@ -789,7 +790,7 @@ class TestRun:
 
     def test_run_publishes_hub_online(self):
         """run() publishes 'online' to the hub status topic after connect."""
-        p = _make_protocol({"name": "testhub"})
+        p = _make_protocol({"api_key": "testkey"})
         mock_client_instance = self._make_mock_mqtt_client()
 
         import paho.mqtt.client as paho_mqtt
@@ -799,12 +800,12 @@ class TestRun:
         publish_calls = mock_client_instance.publish.call_args_list
         topics_published = [c[0][0] for c in publish_calls]
         payloads_published = [c[0][1] for c in publish_calls]
-        assert any("status/hub" in t for t in topics_published)
+        assert any("/status" in t for t in topics_published)
         assert "online" in payloads_published
 
     def test_run_will_set_offline_lwt(self):
         """run() sets a LWT will_set with 'offline' payload."""
-        p = _make_protocol({"name": "testhub"})
+        p = _make_protocol({"api_key": "testkey"})
         mock_client_instance = self._make_mock_mqtt_client()
 
         import paho.mqtt.client as paho_mqtt
@@ -813,7 +814,7 @@ class TestRun:
 
         mock_client_instance.will_set.assert_called_once()
         args = mock_client_instance.will_set.call_args[0]
-        assert "status/hub" in args[0]
+        assert "/status" in args[0]
         assert args[1] == "offline"
 
     def test_run_idle_sweep_thread_started(self):

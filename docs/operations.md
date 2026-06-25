@@ -10,7 +10,7 @@ Any MQTT 3.1.1 or 5.0 broker works. Common choices:
   integrations.
 - **HiveMQ** — enterprise-grade, strong ACL support.
 
-The master and satellites only need TCP access to the broker — no inbound ports on
+The hub and satellites only need TCP access to the broker — no inbound ports on
 either side.
 
 ## Mosquitto quick setup
@@ -30,10 +30,10 @@ allow_anonymous false
 password_file /etc/mosquitto/passwd
 ```
 
-Create a user for the master:
+Create a user for the hub:
 
 ```bash
-sudo mosquitto_passwd -c /etc/mosquitto/passwd hivemind-node
+sudo mosquitto_passwd -c /etc/mosquitto/passwd hivemind-hub
 ```
 
 Set `broker_username` and `broker_password` in `server.json` to match.
@@ -45,14 +45,14 @@ In Mosquitto, create `/etc/mosquitto/acl`:
 
 ```
 # Master can read and write anything under hivemind/
-user hivemind-node
+user hivemind-master
 topic hivemind/#
 
 # Satellite with key "abc123" can only use its own topics
 user abc123
-topic read hivemind/+/s2c/abc123
-topic write hivemind/+/c2s/abc123
-topic write hivemind/+/status/abc123
+topic read hivemind/abc123/out
+topic write hivemind/abc123/in
+topic write hivemind/abc123/status
 ```
 
 Set `per_listener_settings true` and `acl_file /etc/mosquitto/acl` in
@@ -74,9 +74,9 @@ Set `tls: true` and `broker_port: 8883` in the plugin config. Point
 ## Home Assistant integration
 
 If your Home Assistant instance already runs an MQTT broker (Mosquitto add-on),
-you can run `hivemind-core` alongside it and share the broker. Use
-`hash_topics: true` if the HA MQTT namespace is shared and you don't want
-the satellite's HiveMind access key visible in topic names.
+you can run `hivemind-core` alongside it and share the broker. Use a distinct
+`topic_prefix` and per-satellite ACLs so HiveMind traffic stays isolated from
+the rest of the HA MQTT namespace.
 
 ## Authoring a transport plugin
 
