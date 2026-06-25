@@ -29,6 +29,12 @@ Defaults: `prefix = hivemind`. Each satellite's HiveMind access key (`api_key`)
 is its own topic segment — it is unique per client and identifies which DB
 record to look up as soon as the first frame arrives.
 
+The master also publishes its own presence to `<prefix>/<master_name>/status`
+(where `<master_name>` is the master's `NodeIdentity.name`). That topic matches
+the master's own `<prefix>/+/status` subscription, so the master receives its
+own status echo; this self-echo is explicitly ignored, so the master never
+treats itself as a satellite peer.
+
 ## Crypto
 
 The MQTT payload carries the **same encrypted HiveMessage frame** the WebSocket
@@ -88,11 +94,36 @@ server.run()   # blocks
 
 ## Satellite side
 
-The matching satellite client (publish to `<api_key>/in`, subscribe to
-`<api_key>/out`, set the LWT on `<api_key>/status`) is a planned follow-up as a
-transport option in `hivemind-bus-client` or a dedicated `hivemind-mqtt-client`.  An
-ESPHome / Tasmota external-component example for ESP32 satellites is also
-planned.
+A satellite is any MQTT client that:
+
+1. sets a retained LWT `offline` on `<prefix>/<api_key>/status`, connects, and
+   publishes a retained `online` there;
+2. subscribes to `<prefix>/<api_key>/out`;
+3. publishes its first HiveMind frame to `<prefix>/<api_key>/in` — this is what
+   makes the master create the logical connection and reply (over the `out`
+   topic) with its `HELLO` + handshake request, after which the satellite runs
+   the normal HiveMind handshake and then exchanges encrypted frames.
+
+A reference satellite that drives a real `HiveMindSlaveProtocol` over MQTT lives
+in the end-to-end test harness (`tests/e2e/mqtt_satellite.py`); see
+[Testing](#testing). A first-class transport option in `hivemind-bus-client` (or
+a dedicated `hivemind-mqtt-client`) and an ESPHome / Tasmota external-component
+example for ESP32 satellites are planned follow-ups.
+
+## Testing
+
+```bash
+pip install -e .[e2e]   # installs hivescope + the in-process harness
+pytest tests/           # unit + end-to-end
+```
+
+- `tests/test_mqtt_protocol.py` — unit tests (topic/routing/lifecycle logic,
+  mocked paho client and `hm_protocol`).
+- `tests/e2e/` — end-to-end tests that run the **real** `HiveMindMqttProtocol`
+  master and a **real** `HiveMindSlaveProtocol` satellite, exercising the full
+  loop (handshake → encrypted BUS round-trip → LWT presence). The MQTT broker is
+  an in-process double (`tests/e2e/broker.py`) — no external mosquitto, no
+  sockets, no network are required.
 
 ## Where it fits
 

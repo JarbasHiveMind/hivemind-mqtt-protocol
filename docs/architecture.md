@@ -51,6 +51,48 @@ AES-GCM / RSA / PAKE handshake runs unchanged inside the payload bytes.
 
 No additional encryption layer is added by this transport.
 
+## Wire format (text vs binary frames)
+
+A `HiveMessage` frame is either:
+
+- a **text** frame — a UTF-8 JSON object (the default, non-binarized path: the
+  plaintext handshake bootstrap and AES-GCM ciphertext-JSON for everything
+  after); or
+- a **binary** frame — a packed bitstring, used for the binarized / audio path.
+
+WebSocket preserves this text/binary distinction natively; MQTT does not — every
+MQTT payload is opaque `bytes`. On receive, the master therefore inspects the
+payload: a value that begins with `{` or `[` and is valid UTF-8 is decoded back
+to `str` (so `HiveMindClientConnection.decode` takes its JSON path); anything
+else is passed through as `bytes` and decoded as a binary bitstring frame.
+
+## Connection lifecycle
+
+MQTT has no connection event the master can hook, so there is no `accept()`
+loop. A logical per-satellite connection is created lazily on the **first
+inbound frame** on `<prefix>/<api_key>/in`:
+
+1. The satellite announces presence (retained LWT + `online`), subscribes to its
+   `out` topic, and publishes its first frame to its `in` topic.
+2. The master's single client receives it on `<prefix>/+/in`, looks up the
+   `api_key` in the DB, builds the `HiveMindClientConnection`, and (via
+   `handle_new_client`) replies on the `out` topic with `HELLO` + a handshake
+   request.
+3. The satellite completes one HiveMind handshake; both sides derive the same
+   session key, and encrypted frames flow in both directions.
+
+Because the master initiates the handshake (step 2), the satellite must **not**
+start its own handshake before that first round-trip — doing so would race the
+master's request and derive a mismatched key.
+
+### Master self-presence
+
+The master publishes its own presence to `<prefix>/<master_name>/status`
+(`<master_name>` = `NodeIdentity.name`). That topic also matches the master's
+own `<prefix>/+/status` subscription, so the master receives its own status
+echo. The master recognises and ignores this self-echo, so it never treats
+itself as a satellite peer.
+
 ## Authentication layers
 
 1. **Broker-level**: MQTT `username` / `password` (config keys `broker_username` /
