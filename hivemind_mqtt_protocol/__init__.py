@@ -233,6 +233,12 @@ class HiveMindMqttProtocol(NetworkProtocol):
         api_key = parts[-2]
 
         if direction == "status":
+            # The master publishes its own presence to
+            # <prefix>/<master_name>/status, which also matches its
+            # <prefix>/+/status subscription. Ignore that self-echo so the
+            # master never tries to treat itself as a satellite peer.
+            if api_key == (self.identity.name or "master"):
+                return
             status_val = payload.decode(errors="replace").strip()
             if status_val == _OFFLINE:
                 LOG.info(f"[MQTT] LWT offline for {api_key!r}")
@@ -253,12 +259,35 @@ class HiveMindMqttProtocol(NetworkProtocol):
                 return
 
         try:
-            message = conn.decode(payload)
+            message = conn.decode(self._coerce_payload(payload))
         except Exception as e:
             LOG.warning(f"[MQTT] Failed to decode frame from {api_key!r}: {e}")
             return
 
         self.hm_protocol.handle_message(message, conn)
+
+    @staticmethod
+    def _coerce_payload(payload: bytes):
+        """Return the payload typed the way ``HiveMindClientConnection.decode``
+        expects.
+
+        MQTT delivers every payload as ``bytes``, but ``decode`` treats any
+        ``bytes`` value as a binary *bitstring* frame and any ``str`` value as
+        a JSON frame (plaintext handshake or AES-GCM ciphertext-JSON). Text
+        HiveMessage frames — the default, non-binarized path used by the
+        handshake and ordinary BUS messages — are valid UTF-8 JSON objects, so
+        decode them back to ``str``; anything that is not valid UTF-8 JSON is a
+        genuine binary frame and is passed through as ``bytes``.
+        """
+        if not isinstance(payload, (bytes, bytearray)):
+            return payload
+        stripped = payload.lstrip()
+        if stripped[:1] in (b"{", b"["):
+            try:
+                return payload.decode("utf-8")
+            except UnicodeDecodeError:
+                return bytes(payload)
+        return bytes(payload)
 
     def _on_disconnect(self, client: mqtt.Client, userdata: Any, rc: int) -> None:
         if rc != 0:
@@ -312,7 +341,9 @@ class HiveMindMqttProtocol(NetworkProtocol):
         self._mqtt.connect(broker_host, broker_port, keepalive=60)
         self._mqtt.publish(master_status, _ONLINE, qos=1, retain=True)
 
-        idle_timeout = float(self._cfg("idle_timeout") or _DEFAULT_IDLE_TIMEOUT)
+        # Missing/None → default; any value <= 0 disables the sweep entirely.
+        raw_idle = self._cfg("idle_timeout")
+        idle_timeout = float(raw_idle if raw_idle is not None else _DEFAULT_IDLE_TIMEOUT)
         if idle_timeout > 0:
             threading.Thread(
                 target=self._idle_sweep, args=(idle_timeout,),

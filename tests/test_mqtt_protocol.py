@@ -5,88 +5,25 @@ All tests use mocked paho-mqtt and mocked hivemind-core objects — no live
 broker is required.
 """
 
-import hashlib
 import threading
 import time
-import types
-from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-# ---------------------------------------------------------------------------
-# Minimal stubs so we can import the protocol without a full HiveMind install.
-# ---------------------------------------------------------------------------
+# These unit tests exercise the protocol's routing/topic/lifecycle logic in
+# isolation, with a mocked ``hm_protocol`` and a mocked paho client. The real
+# ``hivemind_mqtt_protocol`` (and its real dependencies) are imported normally;
+# only the two collaborators that need real crypto/identity to construct — the
+# ``HiveMindClientConnection`` and ``HiveMindNodeType`` references the module
+# looks up by name — are swapped for lightweight fakes, and that swap is scoped
+# to each test by the autouse ``_patch_connection`` fixture below so it never
+# leaks into the end-to-end suite.
 
-import sys
-
-
-def _make_stub_module(name: str, **attrs) -> types.ModuleType:
-    mod = types.ModuleType(name)
-    for k, v in attrs.items():
-        setattr(mod, k, v)
-    return mod
-
-
-# ovos_utils.log
-log_stub = _make_stub_module("ovos_utils")
-log_stub.log = _make_stub_module("ovos_utils.log", LOG=MagicMock())
-sys.modules.setdefault("ovos_utils", log_stub)
-sys.modules.setdefault("ovos_utils.log", log_stub.log)
-
-# ovos_bus_client.session
-session_cls = MagicMock(name="Session")
-session_stub = _make_stub_module("ovos_bus_client")
-session_stub.session = _make_stub_module("ovos_bus_client.session", Session=session_cls)
-sys.modules.setdefault("ovos_bus_client", session_stub)
-sys.modules.setdefault("ovos_bus_client.session", session_stub.session)
-
-# poorman_handshake
-psh_stub = _make_stub_module("poorman_handshake", PasswordHandShake=MagicMock())
-sys.modules.setdefault("poorman_handshake", psh_stub)
-
-# hivemind_plugin_manager.protocols
-@dataclass
-class _FakeNetworkProtocol:
-    config: Dict[str, Any] = field(default_factory=dict)
-    hm_protocol: Optional[Any] = None
-    callbacks: Any = None
-
-    @property
-    def identity(self):
-        return MagicMock(name="identity")
-
-    @property
-    def database(self):
-        return None
-
-    @property
-    def clients(self):
-        return {}
-
-    @property
-    def agent_protocol(self):
-        return None
-
-    def run(self):  # abstract placeholder
-        pass
+import hivemind_mqtt_protocol  # noqa: E402
+from hivemind_mqtt_protocol import HiveMindMqttProtocol  # noqa: E402
 
 
-class _FakeCallbacks:
-    pass
-
-
-proto_mod = _make_stub_module(
-    "hivemind_plugin_manager.protocols",
-    NetworkProtocol=_FakeNetworkProtocol,
-    ClientCallbacks=_FakeCallbacks,
-)
-pm_mod = _make_stub_module("hivemind_plugin_manager", protocols=proto_mod)
-sys.modules.setdefault("hivemind_plugin_manager", pm_mod)
-sys.modules.setdefault("hivemind_plugin_manager.protocols", proto_mod)
-
-# hivemind_core.protocol
 class _FakeClientConnection:
     def __init__(self, **kwargs):
         for k, v in kwargs.items():
@@ -113,26 +50,19 @@ class _FakeNodeType:
     NODE = "NODE"
 
 
-hmc_mod = _make_stub_module(
-    "hivemind_core.protocol",
-    HiveMindClientConnection=_FakeClientConnection,
-    HiveMindListenerProtocol=MagicMock(),
-    HiveMindNodeType=_FakeNodeType,
-)
-sys.modules.setdefault("hivemind_core", _make_stub_module("hivemind_core"))
-sys.modules.setdefault("hivemind_core.protocol", hmc_mod)
+@pytest.fixture(autouse=True)
+def _patch_connection(monkeypatch):
+    """Swap the heavyweight collaborators for fakes, per-test and restored.
 
-# Now patch NetworkProtocol base in the module under test before importing.
-import hivemind_mqtt_protocol  # noqa: E402  (import after stubs)
-
-# Patch the base class reference inside the module so HiveMindMqttProtocol
-# inherits from our stub instead of the real NetworkProtocol.
-hivemind_mqtt_protocol.NetworkProtocol = _FakeNetworkProtocol
-hivemind_mqtt_protocol.HiveMindClientConnection = _FakeClientConnection
-hivemind_mqtt_protocol.HiveMindNodeType = _FakeNodeType
-hivemind_mqtt_protocol.ClientCallbacks = _FakeCallbacks
-
-from hivemind_mqtt_protocol import HiveMindMqttProtocol  # noqa: E402
+    ``monkeypatch`` restores the originals at teardown, so the real classes
+    are intact for the end-to-end suite that runs in the same session.
+    """
+    monkeypatch.setattr(hivemind_mqtt_protocol, "HiveMindClientConnection",
+                        _FakeClientConnection)
+    monkeypatch.setattr(hivemind_mqtt_protocol, "HiveMindNodeType",
+                        _FakeNodeType)
+    monkeypatch.setattr(hivemind_mqtt_protocol, "PasswordHandShake",
+                        MagicMock(name="PasswordHandShake"))
 
 
 # ---------------------------------------------------------------------------
@@ -209,13 +139,6 @@ class TestTopics:
         p = _make_protocol()
         assert p.status_wildcard() == "hivemind/+/status"
 
-    def test_hash_topics(self):
-        pytest.skip("hash_topics removed — api_key IS the topic, no hashing needed")
-        p = _make_protocol({"hash_topics": True})
-        sat_id = "mysat"
-        expected = hashlib.sha256(sat_id.encode()).hexdigest()[:16]
-        assert p.in_topic(sat_id) == f"hivemind/{sat_id}/in"
-
     def test_api_key_from_in_topic(self):
         topic = "hivemind/sat42/in"
         assert HiveMindMqttProtocol._api_key_from_topic(topic) == "sat42"
@@ -226,6 +149,46 @@ class TestTopics:
 
     def test_api_key_short_topic_returns_none(self):
         assert HiveMindMqttProtocol._api_key_from_topic("bad") is None
+
+
+# ---------------------------------------------------------------------------
+# _coerce_payload: MQTT bytes → str/bytes the way decode() expects
+# ---------------------------------------------------------------------------
+
+
+class TestCoercePayload:
+    def test_json_object_bytes_become_str(self):
+        out = HiveMindMqttProtocol._coerce_payload(b'{"msg_type": "ping"}')
+        assert isinstance(out, str)
+        assert out == '{"msg_type": "ping"}'
+
+    def test_ciphertext_json_bytes_become_str(self):
+        out = HiveMindMqttProtocol._coerce_payload(b'{"ciphertext": "abc"}')
+        assert isinstance(out, str)
+
+    def test_json_array_bytes_become_str(self):
+        out = HiveMindMqttProtocol._coerce_payload(b'[1, 2, 3]')
+        assert isinstance(out, str)
+
+    def test_leading_whitespace_is_tolerated(self):
+        out = HiveMindMqttProtocol._coerce_payload(b'   {"a": 1}')
+        assert isinstance(out, str)
+
+    def test_binary_bitstring_stays_bytes(self):
+        # Non-JSON bytes (a binary frame) must pass through untouched.
+        raw = bytes([0x00, 0x01, 0xFF, 0x10])
+        out = HiveMindMqttProtocol._coerce_payload(raw)
+        assert out == raw and isinstance(out, bytes)
+
+    def test_invalid_utf8_that_looks_like_json_stays_bytes(self):
+        # Starts with '{' but is not valid UTF-8 → treated as a binary frame.
+        raw = b"{\xff\xfe"
+        out = HiveMindMqttProtocol._coerce_payload(raw)
+        assert out == raw and isinstance(out, bytes)
+
+    def test_non_bytes_passthrough(self):
+        # An already-decoded str is returned unchanged.
+        assert HiveMindMqttProtocol._coerce_payload("already str") == "already str"
 
 
 # ---------------------------------------------------------------------------
@@ -377,6 +340,17 @@ class TestLWT:
         p.hm_protocol.handle_client_disconnected.reset_mock()
 
         msg = self._make_msg("hivemind/sat1/status", b"online")
+        p._on_message(p._mqtt, None, msg)
+
+        p.hm_protocol.handle_client_disconnected.assert_not_called()
+
+    def test_master_self_status_offline_is_ignored(self):
+        """The master's own status echo (<prefix>/<master_name>/status) must
+        not be treated as a satellite going offline."""
+        p = _make_protocol()  # identity.name == "testkey"
+        p.hm_protocol.handle_client_disconnected.reset_mock()
+
+        msg = self._make_msg("hivemind/testkey/status", b"offline")
         p._on_message(p._mqtt, None, msg)
 
         p.hm_protocol.handle_client_disconnected.assert_not_called()
@@ -837,10 +811,9 @@ class TestRun:
         assert "mqtt-idle-sweep" in threads_started
 
     def test_run_no_idle_sweep_when_disabled(self):
-        """run() does NOT start the idle-sweep thread when idle_timeout is
-        explicitly set to a negative value (the 'or default' guard means 0
-        falls back to the default; negative is the reliable disable signal)."""
-        p = _make_protocol({"idle_timeout": -1})
+        """run() does NOT start the idle-sweep thread when idle_timeout is 0
+        (or any non-positive value)."""
+        p = _make_protocol({"idle_timeout": 0})
         mock_client_instance = self._make_mock_mqtt_client()
         threads_started = []
 

@@ -24,7 +24,18 @@ test = [
     "hivemind-bus-client",
     "ovos-bus-client",
     "ovos-utils",
-    "hivescope",
+]
+# End-to-end tests drive a real hivemind-core master + a real satellite over
+# an in-process MQTT broker double (no external broker). hivescope provides the
+# in-process HiveMind harness and floors the bus-client 2.x stack. The 0.5.2a1
+# floor is a prerelease pinned as the minimum so pip resolves it without --pre.
+e2e = [
+    "pytest",
+    "hivemind-core",
+    "hivemind-bus-client",
+    "ovos-bus-client",
+    "ovos-utils",
+    "hivescope>=0.5.2a1",
 ]
 
 [project.urls]

@@ -30,33 +30,41 @@ allow_anonymous false
 password_file /etc/mosquitto/passwd
 ```
 
-Create a user for the hub:
+Create a broker user for the master:
 
 ```bash
-sudo mosquitto_passwd -c /etc/mosquitto/passwd hivemind-hub
+sudo mosquitto_passwd -c /etc/mosquitto/passwd hivemind-master
 ```
 
-Set `broker_username` and `broker_password` in `server.json` to match.
+Set `broker_username` (`hivemind-master`) and `broker_password` in
+`server.json` to match.
 
 ## ACL (per-satellite topic restriction)
 
 For production, restrict each satellite's MQTT credentials to its own topics.
-In Mosquitto, create `/etc/mosquitto/acl`:
+The api_key in the topic is acceptable in the clear — it is like a username, and
+without the matching crypto key the payload ciphertext is useless — but a
+per-api_key ACL stops one satellite from reading or impersonating another at the
+broker level. In Mosquitto, create `/etc/mosquitto/acl`:
 
 ```
-# Master can read and write anything under hivemind/
+# Master can read and write anything under hivemind/ (including its own
+# presence topic hivemind/<master_name>/status).
 user hivemind-master
 topic hivemind/#
 
-# Satellite with key "abc123" can only use its own topics
+# Satellite with api_key "abc123" can only use its own topics:
+#   - read its own out topic (master → satellite)
+#   - write its own in topic (satellite → master) and status (LWT/presence)
 user abc123
 topic read hivemind/abc123/out
 topic write hivemind/abc123/in
 topic write hivemind/abc123/status
 ```
 
-Set `per_listener_settings true` and `acl_file /etc/mosquitto/acl` in
-the Mosquitto config.
+Repeat the three-line `user <api_key>` block for each satellite. Set
+`per_listener_settings true` and `acl_file /etc/mosquitto/acl` in the Mosquitto
+config.
 
 ## Mosquitto with TLS
 
