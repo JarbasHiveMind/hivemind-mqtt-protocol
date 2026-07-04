@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.1a1](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/tree/0.2.1a1) (2026-07-04)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/compare/0.2.0a2...0.2.1a1)
+
+**Merged pull requests:**
+
+- fix: pin poorman-handshake\>=2.0.0a1 + disable-able runtime password backstop [\#7](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/pull/7) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.2.0a2](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/tree/0.2.0a2) (2026-07-04)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/compare/0.2.0a1...0.2.0a2)
