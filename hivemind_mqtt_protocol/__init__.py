@@ -42,7 +42,14 @@ from ovos_bus_client.session import Session
 from ovos_utils.log import LOG
 from poorman_handshake import PasswordHandShake
 
-from hivemind_core.config import runtime_password_min_bits
+try:
+    from hivemind_core.config import runtime_password_min_bits
+except ImportError:  # released hivemind-core without the helper
+    import os
+
+    def runtime_password_min_bits():
+        return 0.0 if os.environ.get("HIVEMIND_DISABLE_PASSWORD_STRENGTH_CHECK", "").strip().lower() in ("1", "true", "yes", "on") else 40.0
+
 from hivemind_core.protocol import (
     HiveMindClientConnection,
     HiveMindListenerProtocol,
