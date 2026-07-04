@@ -42,6 +42,14 @@ from ovos_bus_client.session import Session
 from ovos_utils.log import LOG
 from poorman_handshake import PasswordHandShake
 
+try:
+    from hivemind_core.config import runtime_password_min_bits
+except ImportError:  # released hivemind-core without the helper
+    import os
+
+    def runtime_password_min_bits():
+        return 0.0 if os.environ.get("HIVEMIND_DISABLE_PASSWORD_STRENGTH_CHECK", "").strip().lower() in ("1", "true", "yes", "on") else 40.0
+
 from hivemind_core.protocol import (
     HiveMindClientConnection,
     HiveMindListenerProtocol,
@@ -179,7 +187,7 @@ class HiveMindMqttProtocol(NetworkProtocol):
         conn.can_escalate = user.can_escalate
         conn.is_admin = user.is_admin
         if user.password:
-            conn.pswd_handshake = PasswordHandShake(user.password)
+            conn.pswd_handshake = PasswordHandShake(user.password, min_bits=runtime_password_min_bits())
 
         conn.node_type = HiveMindNodeType.NODE
 
