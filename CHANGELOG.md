@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.0a2](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/tree/0.2.0a2) (2026-07-04)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/compare/0.2.0a1...0.2.0a2)
+
+**Merged pull requests:**
+
+- Configure Renovate [\#1](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/pull/1) ([renovate[bot]](https://github.com/apps/renovate))
+
 ## [0.2.0a1](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/tree/0.2.0a1) (2026-06-25)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/compare/0.1.1a3...0.2.0a1)
