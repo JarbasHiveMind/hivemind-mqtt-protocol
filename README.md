@@ -67,6 +67,7 @@ Two independent layers:
 | `tls_ca_certs` | — | Path to CA bundle |
 | `tls_certfile` | — | Path to client cert (mTLS) |
 | `tls_keyfile` | — | Path to client key (mTLS) |
+| `tls_insecure` | `false` | Skip broker certificate verification for trusted internal brokers |
 | `topic_prefix` | `hivemind` | Topic namespace prefix |
 | `qos` | `1` | Default MQTT QoS for control frames |
 | `idle_timeout` | `300` | Seconds of silence before evicting a peer (0 = off) |

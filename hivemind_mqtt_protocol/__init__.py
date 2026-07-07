@@ -70,6 +70,7 @@ class HiveMindMqttProtocol(NetworkProtocol):
         tls_ca_certs       (str)  None  — path to CA bundle
         tls_certfile       (str)  None  — path to client cert (mTLS)
         tls_keyfile        (str)  None  — path to client key  (mTLS)
+        tls_insecure       (bool) False — skip broker cert verification
         topic_prefix       (str)  "hivemind"
         qos                (int)  1
         idle_timeout       (int)  300   — seconds of silence before eviction; 0 disables
@@ -319,6 +320,8 @@ class HiveMindMqttProtocol(NetworkProtocol):
                 certfile=self._cfg("tls_certfile"),
                 keyfile=self._cfg("tls_keyfile"),
             )
+            if self._cfg("tls_insecure", False):
+                self._mqtt.tls_insecure_set(True)
 
         master_status = self.master_status_topic()
         self._mqtt.will_set(master_status, _OFFLINE, qos=1, retain=True)

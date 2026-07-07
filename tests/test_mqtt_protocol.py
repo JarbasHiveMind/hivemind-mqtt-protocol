@@ -798,6 +798,19 @@ class TestRun:
             certfile="/client.crt",
             keyfile="/client.key",
         )
+        mock_client_instance.tls_insecure_set.assert_not_called()
+
+    def test_run_tls_insecure_enabled(self):
+        """run() honors operator-rendered tls_insecure config for internal brokers."""
+        p = _make_protocol({"tls": True, "tls_insecure": True})
+        mock_client_instance = self._make_mock_mqtt_client()
+
+        import paho.mqtt.client as paho_mqtt
+        with patch.object(paho_mqtt, "Client", return_value=mock_client_instance):
+            p.run()
+
+        mock_client_instance.tls_set.assert_called_once()
+        mock_client_instance.tls_insecure_set.assert_called_once_with(True)
 
     def test_run_tls_disabled(self):
         """run() does not call tls_set when tls=False (default)."""
@@ -809,6 +822,7 @@ class TestRun:
             p.run()
 
         mock_client_instance.tls_set.assert_not_called()
+        mock_client_instance.tls_insecure_set.assert_not_called()
 
     def test_run_publishes_hub_online(self):
         """run() publishes 'online' to the hub status topic after connect."""
