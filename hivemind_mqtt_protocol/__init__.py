@@ -34,6 +34,7 @@ Two layers, consistent with the design doc:
 
 import hashlib
 import os
+import ssl
 import threading
 import time
 from dataclasses import dataclass, field
@@ -315,12 +316,17 @@ class HiveMindMqttProtocol(NetworkProtocol):
             self._mqtt.username_pw_set(username, password)
 
         if self._cfg("tls", False):
-            self._mqtt.tls_set(
-                ca_certs=self._cfg("tls_ca_certs"),
-                certfile=self._cfg("tls_certfile"),
-                keyfile=self._cfg("tls_keyfile"),
-            )
-            if self._cfg("tls_insecure", False):
+            tls_insecure = bool(self._cfg("tls_insecure", False))
+            tls_kwargs = {
+                "ca_certs": self._cfg("tls_ca_certs"),
+                "certfile": self._cfg("tls_certfile"),
+                "keyfile": self._cfg("tls_keyfile"),
+            }
+            if tls_insecure:
+                tls_kwargs["cert_reqs"] = ssl.CERT_NONE
+
+            self._mqtt.tls_set(**tls_kwargs)
+            if tls_insecure:
                 self._mqtt.tls_insecure_set(True)
 
         master_status = self.master_status_topic()

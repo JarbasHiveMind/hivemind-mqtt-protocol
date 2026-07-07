@@ -6,6 +6,7 @@ broker is required.
 """
 
 import hashlib
+import ssl
 import threading
 import time
 import types
@@ -810,6 +811,7 @@ class TestRun:
             p.run()
 
         mock_client_instance.tls_set.assert_called_once()
+        assert mock_client_instance.tls_set.call_args.kwargs["cert_reqs"] == ssl.CERT_NONE
         mock_client_instance.tls_insecure_set.assert_called_once_with(True)
 
     def test_run_tls_disabled(self):
