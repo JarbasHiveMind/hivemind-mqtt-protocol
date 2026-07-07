@@ -495,6 +495,18 @@ class TestConfig:
         p = _make_protocol()
         assert p._cfg("hash_topics", False) is False
 
+    def test_configured_broker_client_id_wins(self):
+        p = _make_protocol({"client_id": "hm-fixed"})
+        assert p._broker_client_id() == "hm-fixed"
+
+    def test_broker_client_id_uses_hashed_replica_suffix(self):
+        p = _make_protocol({"client_id_suffix": "hub-pod-7"})
+        broker_client_id = p._broker_client_id()
+        digest = hashlib.sha1(b"hub-pod-7").hexdigest()[:10]
+
+        assert broker_client_id.endswith(f"-{digest}")
+        assert "hub-pod-7" not in broker_client_id
+
 
 # ---------------------------------------------------------------------------
 # _on_connect subscribes to the right wildcards
@@ -551,7 +563,7 @@ class TestPasswordHandshake:
     def test_user_with_password_sets_pswd_handshake(self):
         p = _make_protocol()
         user = p.hm_protocol.db.get_client_by_api_key.return_value
-        user.password = "s3cr3t"
+        user.password = "correct horse battery staple satellite 2026"
         conn = p._build_client_connection("sat1")
         assert conn is not None
         assert conn.pswd_handshake is not None
@@ -721,6 +733,16 @@ class TestRun:
 
         mock_client_instance.connect.assert_called_once_with("127.0.0.1", 1883, keepalive=60)
         mock_client_instance.loop_forever.assert_called_once()
+
+    def test_run_uses_configured_client_id(self):
+        p = _make_protocol({"client_id": "hm-fixed"})
+        mock_client_instance = self._make_mock_mqtt_client()
+
+        import paho.mqtt.client as paho_mqtt
+        with patch.object(paho_mqtt, "Client", return_value=mock_client_instance) as client_cls:
+            p.run()
+
+        client_cls.assert_called_once_with(client_id="hm-fixed")
 
     def test_run_sets_callbacks(self):
         """run() installs on_connect, on_message, on_disconnect."""

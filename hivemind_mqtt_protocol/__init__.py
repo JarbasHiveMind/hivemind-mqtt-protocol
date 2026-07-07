@@ -32,6 +32,8 @@ Two layers, consistent with the design doc:
      arrives.  No separate credential handshake is needed at the MQTT layer.
 """
 
+import hashlib
+import os
 import threading
 import time
 from dataclasses import dataclass, field
@@ -71,6 +73,8 @@ class HiveMindMqttProtocol(NetworkProtocol):
         topic_prefix       (str)  "hivemind"
         qos                (int)  1
         idle_timeout       (int)  300   — seconds of silence before eviction; 0 disables
+        client_id          (str)  None  — explicit MQTT broker client id
+        client_id_suffix   (str)  None  — replica-specific suffix; defaults to HOSTNAME
     """
 
     config: Dict[str, Any] = field(default_factory=dict)
@@ -120,6 +124,20 @@ class HiveMindMqttProtocol(NetworkProtocol):
 
     def master_status_topic(self) -> str:
         return f"{self._prefix()}/{self.identity.name or 'master'}/status"
+
+    def _broker_client_id(self) -> str:
+        """Return a broker client id that does not collide across replicas."""
+        configured = self._cfg("client_id")
+        if configured:
+            return str(configured)
+
+        base = f"hivemind-{self.identity.name or 'master'}"
+        suffix = self._cfg("client_id_suffix") or os.environ.get("HOSTNAME")
+        if not suffix:
+            return base
+
+        digest = hashlib.sha1(str(suffix).encode()).hexdigest()[:10]
+        return f"{base}-{digest}"
 
     # api_key extraction -----------------------------------------------
 
@@ -288,7 +306,7 @@ class HiveMindMqttProtocol(NetworkProtocol):
         broker_host: str = str(self._cfg("broker_host") or "localhost")
         broker_port: int = int(self._cfg("broker_port") or 1883)
 
-        self._mqtt = mqtt.Client(client_id=f"hivemind-{self.identity.name or 'master'}")
+        self._mqtt = mqtt.Client(client_id=self._broker_client_id())
 
         username: Optional[str] = self._cfg("broker_username")
         password: Optional[str] = self._cfg("broker_password")

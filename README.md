@@ -70,6 +70,8 @@ Two independent layers:
 | `topic_prefix` | `hivemind` | Topic namespace prefix |
 | `qos` | `1` | Default MQTT QoS for control frames |
 | `idle_timeout` | `300` | Seconds of silence before evicting a peer (0 = off) |
+| `client_id` | — | Explicit broker client id for special deployments |
+| `client_id_suffix` | `$HOSTNAME` | Replica-specific suffix hashed into the default broker client id |
 
 ## Usage
 
