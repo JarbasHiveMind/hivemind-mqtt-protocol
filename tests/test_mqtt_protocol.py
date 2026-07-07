@@ -202,6 +202,12 @@ class TestTopics:
         p = _make_protocol({"topic_prefix": "hm", "api_key": "mykey"})
         assert p.in_topic("x") == "hm/x/in"
 
+    def test_hub_scoped_topics_match_sdk_layout(self):
+        p = _make_protocol({"topic_prefix": "hm", "hub_id": "hub-1"})
+        assert p.in_topic("sat1") == "hm/hub-1/c2s/sat1"
+        assert p.out_topic("sat1") == "hm/hub-1/s2c/sat1"
+        assert p.status_topic("sat1") == "hm/hub-1/status/sat1"
+
     def test_c2s_wildcard(self):
         p = _make_protocol()
         assert p.in_wildcard() == "hivemind/+/in"
@@ -209,6 +215,11 @@ class TestTopics:
     def test_status_wildcard(self):
         p = _make_protocol()
         assert p.status_wildcard() == "hivemind/+/status"
+
+    def test_hub_scoped_wildcards(self):
+        p = _make_protocol({"hub_id": "hub-1"})
+        assert p.in_wildcard() == "hivemind/hub-1/c2s/+"
+        assert p.status_wildcard() == "hivemind/hub-1/status/+"
 
     def test_hash_topics(self):
         pytest.skip("hash_topics removed — api_key IS the topic, no hashing needed")
@@ -224,6 +235,11 @@ class TestTopics:
     def test_api_key_from_status_topic(self):
         topic = "hivemind/sat99/status"
         assert HiveMindMqttProtocol._api_key_from_topic(topic) == "sat99"
+
+    def test_api_key_from_hub_scoped_topic(self):
+        topic = "hivemind/hub-1/c2s/sat99"
+        assert HiveMindMqttProtocol._api_key_from_topic(topic) == "sat99"
+        assert HiveMindMqttProtocol._direction_from_topic(topic) == "c2s"
 
     def test_api_key_short_topic_returns_none(self):
         assert HiveMindMqttProtocol._api_key_from_topic("bad") is None
@@ -388,6 +404,16 @@ class TestLWT:
         p.hm_protocol.handle_message.reset_mock()
 
         msg = self._make_msg("hivemind/sat1/in", b"payload")
+        p._on_message(p._mqtt, None, msg)
+
+        p.hm_protocol.handle_message.assert_called_once()
+
+    def test_hub_scoped_c2s_message_routed_to_handle_message(self):
+        p = _make_protocol({"hub_id": "hub-1"})
+        p._build_client_connection("sat1")
+        p.hm_protocol.handle_message.reset_mock()
+
+        msg = self._make_msg("hivemind/hub-1/c2s/sat1", b"payload")
         p._on_message(p._mqtt, None, msg)
 
         p.hm_protocol.handle_message.assert_called_once()

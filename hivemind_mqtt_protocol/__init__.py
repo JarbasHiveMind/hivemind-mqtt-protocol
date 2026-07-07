@@ -73,6 +73,7 @@ class HiveMindMqttProtocol(NetworkProtocol):
         tls_keyfile        (str)  None  — path to client key  (mTLS)
         tls_insecure       (bool) False — skip broker cert verification
         topic_prefix       (str)  "hivemind"
+        hub_id             (str)  None  — optional hub topic namespace
         qos                (int)  1
         idle_timeout       (int)  300   — seconds of silence before eviction; 0 disables
         client_id          (str)  None  — explicit MQTT broker client id
@@ -98,6 +99,14 @@ class HiveMindMqttProtocol(NetworkProtocol):
     def _prefix(self) -> str:
         return str(self._cfg("topic_prefix") or "hivemind")
 
+    def _hub_id(self) -> str:
+        return str(self._cfg("hub_id") or "").strip().strip("/")
+
+    def _topic_base(self) -> str:
+        prefix = self._prefix().strip("/")
+        hub_id = self._hub_id()
+        return f"{prefix}/{hub_id}" if hub_id else prefix
+
     def _qos(self, is_bin: bool = False) -> int:
         if is_bin:
             return 0
@@ -108,24 +117,34 @@ class HiveMindMqttProtocol(NetworkProtocol):
 
     def in_topic(self, api_key: str) -> str:
         """Inbound topic: satellite → master."""
-        return f"{self._prefix()}/{api_key}/in"
+        if self._hub_id():
+            return f"{self._topic_base()}/c2s/{api_key}"
+        return f"{self._topic_base()}/{api_key}/in"
 
     def out_topic(self, api_key: str) -> str:
         """Outbound topic: master → satellite."""
-        return f"{self._prefix()}/{api_key}/out"
+        if self._hub_id():
+            return f"{self._topic_base()}/s2c/{api_key}"
+        return f"{self._topic_base()}/{api_key}/out"
 
     def status_topic(self, api_key: str) -> str:
         """Retained LWT presence topic."""
-        return f"{self._prefix()}/{api_key}/status"
+        if self._hub_id():
+            return f"{self._topic_base()}/status/{api_key}"
+        return f"{self._topic_base()}/{api_key}/status"
 
     def in_wildcard(self) -> str:
-        return f"{self._prefix()}/+/in"
+        if self._hub_id():
+            return f"{self._topic_base()}/c2s/+"
+        return f"{self._topic_base()}/+/in"
 
     def status_wildcard(self) -> str:
-        return f"{self._prefix()}/+/status"
+        if self._hub_id():
+            return f"{self._topic_base()}/status/+"
+        return f"{self._topic_base()}/+/status"
 
     def master_status_topic(self) -> str:
-        return f"{self._prefix()}/{self.identity.name or 'master'}/status"
+        return self.status_topic(self.identity.name or "master")
 
     def _broker_client_id(self) -> str:
         """Return a broker client id that does not collide across replicas."""
@@ -147,8 +166,19 @@ class HiveMindMqttProtocol(NetworkProtocol):
     def _api_key_from_topic(topic: str) -> Optional[str]:
         """Extract the api_key segment from <prefix>/<api_key>/<direction>."""
         parts = topic.split("/")
+        if len(parts) >= 4 and parts[-2] in {"c2s", "s2c", "status"}:
+            return parts[-1]
         if len(parts) >= 3:
             return parts[-2]
+        return None
+
+    @staticmethod
+    def _direction_from_topic(topic: str) -> Optional[str]:
+        parts = topic.split("/")
+        if len(parts) >= 4 and parts[-2] in {"c2s", "s2c", "status"}:
+            return parts[-2]
+        if len(parts) >= 3:
+            return parts[-1]
         return None
 
     # ------------------------------------------------------------------
@@ -249,8 +279,11 @@ class HiveMindMqttProtocol(NetworkProtocol):
             LOG.warning(f"[MQTT] Unexpected topic shape: {topic!r}")
             return
 
-        direction = parts[-1]   # "in", "out", or "status"
-        api_key = parts[-2]
+        direction = self._direction_from_topic(topic)
+        api_key = self._api_key_from_topic(topic)
+        if not direction or not api_key:
+            LOG.warning(f"[MQTT] Unexpected topic shape: {topic!r}")
+            return
 
         if direction == "status":
             status_val = payload.decode(errors="replace").strip()
@@ -259,7 +292,7 @@ class HiveMindMqttProtocol(NetworkProtocol):
                 self._disconnect_peer(api_key)
             return
 
-        if direction != "in":
+        if direction not in {"in", "c2s"}:
             return
 
         with self._lock:
