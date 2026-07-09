@@ -20,6 +20,12 @@ and without the matching password/crypto key the payload ciphertext is useless.
     <prefix>/<api_key>/out     master → satellite
     <prefix>/<api_key>/status  retained LWT presence (online/offline)
 
+With ``hub_id`` set, the topics are scoped to that hub instead:
+
+    <prefix>/<hub_id>/c2s/<api_key>     satellite → master
+    <prefix>/<hub_id>/s2c/<api_key>     master → satellite
+    <prefix>/<hub_id>/status/<api_key>  retained LWT presence
+
 Crypto
 ------
 The MQTT payload IS the same encrypted HiveMessage frame that the WebSocket
@@ -38,9 +44,11 @@ Two layers, consistent with the design doc:
      arrives.  No separate credential handshake is needed at the MQTT layer.
 """
 
+import hashlib
+import os
+import socket
 import threading
 import time
-import uuid
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
@@ -84,6 +92,10 @@ class HiveMindMqttProtocol(NetworkProtocol):
         tls_certfile       (str)  None  — path to client cert (mTLS)
         tls_keyfile        (str)  None  — path to client key  (mTLS)
         topic_prefix       (str)  "hivemind"
+        hub_id             (str)  None  — optional hub topic namespace
+        client_id          (str)  None  — exact broker client id override
+        client_id_suffix   (str)  $HOSTNAME, else the machine hostname —
+                                  replica-safe suffix source
         qos                (int)  1
         idle_timeout       (int)  300   — seconds of silence before eviction; 0 disables
     """
@@ -107,6 +119,14 @@ class HiveMindMqttProtocol(NetworkProtocol):
     def _prefix(self) -> str:
         return str(self._cfg("topic_prefix") or "hivemind")
 
+    def _hub_id(self) -> str:
+        return str(self._cfg("hub_id") or "").strip().strip("/")
+
+    def _topic_base(self) -> str:
+        prefix = self._prefix().strip("/")
+        hub_id = self._hub_id()
+        return f"{prefix}/{hub_id}" if hub_id else prefix
+
     def _qos(self, is_bin: bool = False) -> int:
         if is_bin:
             return 0
@@ -117,34 +137,85 @@ class HiveMindMqttProtocol(NetworkProtocol):
 
     def in_topic(self, api_key: str) -> str:
         """Inbound topic: satellite → master."""
-        return f"{self._prefix()}/{api_key}/in"
+        if self._hub_id():
+            return f"{self._topic_base()}/c2s/{api_key}"
+        return f"{self._topic_base()}/{api_key}/in"
 
     def out_topic(self, api_key: str) -> str:
         """Outbound topic: master → satellite."""
-        return f"{self._prefix()}/{api_key}/out"
+        if self._hub_id():
+            return f"{self._topic_base()}/s2c/{api_key}"
+        return f"{self._topic_base()}/{api_key}/out"
 
     def status_topic(self, api_key: str) -> str:
         """Retained LWT presence topic."""
-        return f"{self._prefix()}/{api_key}/status"
+        if self._hub_id():
+            return f"{self._topic_base()}/status/{api_key}"
+        return f"{self._topic_base()}/{api_key}/status"
 
     def in_wildcard(self) -> str:
-        return f"{self._prefix()}/+/in"
+        if self._hub_id():
+            return f"{self._topic_base()}/c2s/+"
+        return f"{self._topic_base()}/+/in"
 
     def status_wildcard(self) -> str:
-        return f"{self._prefix()}/+/status"
+        if self._hub_id():
+            return f"{self._topic_base()}/status/+"
+        return f"{self._topic_base()}/+/status"
 
     def master_status_topic(self) -> str:
-        return f"{self._prefix()}/{self.identity.name or 'master'}/status"
+        return self.status_topic(self.identity.name or "master")
+
+    def _broker_client_id(self) -> str:
+        explicit = self._cfg("client_id")
+        if explicit:
+            return str(explicit)
+        base = f"hivemind-{self._hub_id() or self.identity.name or 'master'}"
+        suffix = self._cfg("client_id_suffix")
+        if suffix is None:
+            # $HOSTNAME is a shell variable, not always exported: systemd and
+            # many service managers leave it unset. Without a suffix, replicas
+            # on different machines share one id and the broker disconnects
+            # the older connection each time the other connects.
+            suffix = os.getenv("HOSTNAME") or socket.gethostname()
+        if not suffix:
+            return base
+        digest = hashlib.sha1(str(suffix).encode("utf-8")).hexdigest()[:10]
+        return f"{base}-{digest}"
 
     # api_key extraction -----------------------------------------------
 
-    @staticmethod
-    def _api_key_from_topic(topic: str) -> Optional[str]:
-        """Extract the api_key segment from <prefix>/<api_key>/<direction>."""
+    def _parse_topic(self, topic: str) -> tuple[str | None, str | None]:
+        """Split a topic under this listener's base into (direction, api_key).
+
+        The configured layout decides which segment is which. Guessing from
+        the segment names misread a standalone satellite whose api_key is
+        ``c2s``, ``s2c`` or ``status`` under a multi-level prefix:
+        ``tenant/hm/c2s/in`` looked like the managed layout, with ``in`` as
+        the key.
+
+        Args:
+            topic: the MQTT topic a message arrived on.
+
+        Returns:
+            (direction, api_key), or (None, None) for a topic outside this
+            listener's layout.
+        """
+        base = self._topic_base()
+        if base:
+            if not topic.startswith(f"{base}/"):
+                return None, None
+            topic = topic[len(base) + 1:]
         parts = topic.split("/")
-        if len(parts) >= 3:
-            return parts[-2]
-        return None
+        if len(parts) != 2 or not all(parts):
+            return None, None
+        if self._hub_id():
+            direction, api_key = parts
+            if direction not in {"c2s", "s2c", "status"}:
+                return None, None
+        else:
+            api_key, direction = parts
+        return direction, api_key
 
     # ------------------------------------------------------------------
     # Connection lifecycle
@@ -228,19 +299,17 @@ class HiveMindMqttProtocol(NetworkProtocol):
         topic: str = msg.topic
         payload: bytes = msg.payload
 
-        parts = topic.split("/")
-        if len(parts) < 3:
+        direction, api_key = self._parse_topic(topic)
+        if not direction or not api_key:
             LOG.warning(f"[MQTT] Unexpected topic shape: {topic!r}")
             return
 
-        direction = parts[-1]   # "in", "out", or "status"
-        api_key = parts[-2]
-
         if direction == "status":
             # The master publishes its own presence to
-            # <prefix>/<master_name>/status, which also matches its
-            # <prefix>/+/status subscription. Ignore that self-echo so the
-            # master never tries to treat itself as a satellite peer.
+            # <prefix>/<master_name>/status, or <prefix>/<hub_id>/status/
+            # <master_name> when hub_id is set, and that matches its own status
+            # subscription. Ignore that self-echo so the master never tries to
+            # treat itself as a satellite peer.
             if api_key == (self.identity.name or "master"):
                 return
             status_val = payload.decode(errors="replace").strip()
@@ -249,7 +318,7 @@ class HiveMindMqttProtocol(NetworkProtocol):
                 self._disconnect_peer(api_key)
             return
 
-        if direction != "in":
+        if direction not in {"in", "c2s"}:
             return
 
         with self._lock:
@@ -328,11 +397,14 @@ class HiveMindMqttProtocol(NetworkProtocol):
         broker_host: str = str(self._cfg("broker_host") or "localhost")
         broker_port: int = int(self._cfg("broker_port") or 1883)
 
-        # one broker session per replica: a shared client id makes the broker
-        # treat every replica as the same client reconnecting, and they kick
-        # each other off
-        self._mqtt = mqtt.Client(
-            client_id=f"hivemind-{self.identity.name or 'master'}-{uuid.uuid4().hex[:12]}")
+        # One broker session per replica, and the same one after a restart.
+        # A shared client id makes the broker treat every replica as the same
+        # client reconnecting and they kick each other off; a random one fixes
+        # that but changes on every restart, which loses the session and, on a
+        # broker that authorises by client id, stops matching its ACL. This is
+        # derived instead: stable for a given replica, distinct between
+        # replicas, and overridable when an operator has to name it.
+        self._mqtt = mqtt.Client(client_id=self._broker_client_id())
 
         username: Optional[str] = self._cfg("broker_username")
         password: Optional[str] = self._cfg("broker_password")

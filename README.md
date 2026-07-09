@@ -21,21 +21,35 @@ the topic hierarchy.
 ### Topic scheme
 
 ```
-<prefix>/<api_key>/in      # satellite → master  (master subscribes <prefix>/+/in)
-<prefix>/<api_key>/out     # master → satellite
-<prefix>/<api_key>/status  # retained LWT presence (online / offline)
+<prefix>/<api_key>/in      # satellite → master, legacy standalone layout
+<prefix>/<api_key>/out     # master → satellite, legacy standalone layout
+<prefix>/<api_key>/status  # retained LWT presence, legacy standalone layout
+
+<prefix>/<hub_id>/c2s/<api_key>     # satellite → master, managed hub layout
+<prefix>/<hub_id>/s2c/<api_key>     # master → satellite, managed hub layout
+<prefix>/<hub_id>/status/<api_key>  # retained LWT presence, managed hub layout
 ```
 
 The default prefix is `hivemind`. Each satellite's HiveMind access key
 (`api_key`) is its own topic segment. The key is unique per client, so the
 master can look up the matching database record as soon as the first frame
-arrives.
+arrives. When `hub_id` is set, the topics are under that hub. A managed broker
+ACL can then grant one hub its own topic tree.
 
-The master also publishes its own presence to `<prefix>/<master_name>/status`
-(`<master_name>` is the master's `NodeIdentity.name`). This topic matches the
-master's own `<prefix>/+/status` subscription, so the master receives its own
-status echo. The master ignores this self-echo, so it never treats itself as a
-satellite peer.
+The master also publishes its own retained presence, on the status topic of
+the same layout, with `<master_name>` (the master's `NodeIdentity.name`) in
+place of the api key:
+
+```
+<prefix>/<master_name>/status           # legacy standalone layout
+<prefix>/<hub_id>/status/<master_name>  # managed hub layout
+```
+
+The master subscribes to `<prefix>/+/status`, or to `<prefix>/<hub_id>/status/+`
+when `hub_id` is set. Either subscription matches its own presence topic, so
+the master receives its own status echo. The master ignores this self-echo, so
+it never treats itself as a satellite peer. A broker ACL for a managed hub
+must let the master publish to `<prefix>/<hub_id>/status/<master_name>`.
 
 ## Crypto
 
@@ -49,8 +63,11 @@ The plugin uses two independent layers:
 
 1. **Broker-level**: MQTT `username` / `password`, or a TLS client
    certificate. Configure the broker's ACL so each satellite can only publish
-   to its own `<api_key>/in` topic and subscribe to its own `<api_key>/out`
-   topic.
+   to its own inbound topic and subscribe to its own outbound topic:
+   `<prefix>/<api_key>/in` and `<prefix>/<api_key>/out`, or with `hub_id` set,
+   `<prefix>/<hub_id>/c2s/<api_key>` and `<prefix>/<hub_id>/s2c/<api_key>`.
+   It also publishes its own presence topic, `<prefix>/<api_key>/status` or
+   `<prefix>/<hub_id>/status/<api_key>`.
 2. **HiveMind-level**: the HELLO / HANDSHAKE exchange embedded in the
    encrypted payload, the same as the WebSocket path. The `api_key` is the
    topic segment, so the master knows which database record to check as soon
@@ -76,8 +93,11 @@ The plugin uses two independent layers:
 | `tls_certfile` | none | Path to client cert (mTLS) |
 | `tls_keyfile` | none | Path to client key (mTLS) |
 | `topic_prefix` | `hivemind` | Topic namespace prefix |
+| `hub_id` | — | Optional hub namespace for managed broker ACLs |
 | `qos` | `1` | Default MQTT QoS for control frames |
 | `idle_timeout` | `300` | Seconds of silence before evicting a peer (0 = off) |
+| `client_id` | — | Explicit broker client id for special deployments |
+| `client_id_suffix` | `$HOSTNAME`, else the machine hostname | Replica-specific suffix hashed into the default broker client id |
 
 ## Usage
 
@@ -96,12 +116,15 @@ server.run()   # blocks
 
 ## Satellite side
 
-A satellite is any MQTT client that does the following:
+A satellite is any MQTT client that does the following. Topics are shown for
+the legacy layout, with the managed layout (`hub_id` set) in brackets.
 
-1. Sets a retained LWT `offline` on `<prefix>/<api_key>/status`, connects, and
-   publishes a retained `online` there.
-2. Subscribes to `<prefix>/<api_key>/out`.
-3. Publishes its first HiveMind frame to `<prefix>/<api_key>/in`. This makes
+1. Sets a retained LWT `offline` on `<prefix>/<api_key>/status`
+   (`<prefix>/<hub_id>/status/<api_key>`), connects, and publishes a retained
+   `online` there.
+2. Subscribes to `<prefix>/<api_key>/out` (`<prefix>/<hub_id>/s2c/<api_key>`).
+3. Publishes its first HiveMind frame to `<prefix>/<api_key>/in`
+   (`<prefix>/<hub_id>/c2s/<api_key>`). This makes
    the master create the logical connection and reply, over the `out` topic,
    with its `HELLO` and handshake request. The satellite then runs the normal
    HiveMind handshake and exchanges encrypted frames.
