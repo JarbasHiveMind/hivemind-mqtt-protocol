@@ -31,8 +31,6 @@ class _FakeClientConnection:
         self.peer = kwargs.get("name", "peer")
         self.crypto_key = None
         self.msg_blacklist = []
-        self.skill_blacklist = []
-        self.intent_blacklist = []
         self.allowed_types = []
         self.can_broadcast = True
         self.can_propagate = True
@@ -90,8 +88,6 @@ def _make_protocol(config=None):
     user.name = "testclient"
     user.crypto_key = None
     user.message_blacklist = []
-    user.skill_blacklist = []
-    user.intent_blacklist = []
     user.allowed_types = []
     user.can_broadcast = True
     user.can_propagate = True
