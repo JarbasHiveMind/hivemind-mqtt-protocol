@@ -22,7 +22,7 @@ jobs:
       version_file: 'hivemind_mqtt_protocol/version.py'
       update_changelog: true
       publish_prerelease: true
-      propose_release: false
+      propose_release: true
       changelog_max_issues: 50
       publish_pypi: true
-      notify_matrix: false
+      notify_matrix: true
