@@ -35,6 +35,7 @@ Two layers, consistent with the design doc:
 import threading
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 import paho.mqtt.client as mqtt
@@ -76,6 +77,10 @@ class HiveMindMqttProtocol(NetworkProtocol):
         tls_ca_certs       (str)  None  — path to CA bundle
         tls_certfile       (str)  None  — path to client cert (mTLS)
         tls_keyfile        (str)  None  — path to client key  (mTLS)
+        tls_insecure       (bool) False — explicitly disable verification
+        health_file        (str)  None  — broker-ready marker for probes
+        reconnect_min_delay (int) 1    — initial reconnect delay
+        reconnect_max_delay (int) 30   — maximum reconnect delay
         topic_prefix       (str)  "hivemind"
         qos                (int)  1
         idle_timeout       (int)  300   — seconds of silence before eviction; 0 disables
@@ -105,6 +110,23 @@ class HiveMindMqttProtocol(NetworkProtocol):
             return 0
         v = self._cfg("qos")
         return int(v) if v is not None else 1
+
+    def _health_file(self) -> Optional[Path]:
+        configured = str(self._cfg("health_file") or "").strip()
+        return Path(configured) if configured else None
+
+    def _set_broker_ready(self, ready: bool) -> None:
+        marker = self._health_file()
+        if marker is None:
+            return
+        try:
+            if ready:
+                marker.parent.mkdir(parents=True, exist_ok=True)
+                marker.write_text("ready\n", encoding="utf-8")
+            else:
+                marker.unlink(missing_ok=True)
+        except OSError as exc:
+            LOG.warning(f"[MQTT] Failed to update broker readiness marker: {exc}")
 
     # topic builders ---------------------------------------------------
 
@@ -222,11 +244,14 @@ class HiveMindMqttProtocol(NetworkProtocol):
 
     def _on_connect(self, client: mqtt.Client, userdata: Any, flags: Any, rc: int) -> None:
         if rc != 0:
+            self._set_broker_ready(False)
             LOG.error(f"[MQTT] Broker connection failed, rc={rc}")
             return
         LOG.info("[MQTT] Connected to broker")
         client.subscribe(self.in_wildcard(), qos=self._qos())
         client.subscribe(self.status_wildcard(), qos=1)
+        client.publish(self.master_status_topic(), _ONLINE, qos=1, retain=True)
+        self._set_broker_ready(True)
 
     def _on_message(self, client: mqtt.Client, userdata: Any, msg: mqtt.MQTTMessage) -> None:
         topic: str = msg.topic
@@ -298,6 +323,7 @@ class HiveMindMqttProtocol(NetworkProtocol):
         return bytes(payload)
 
     def _on_disconnect(self, client: mqtt.Client, userdata: Any, rc: int) -> None:
+        self._set_broker_ready(False)
         if rc != 0:
             LOG.warning(f"[MQTT] Unexpected broker disconnect, rc={rc}")
 
@@ -320,10 +346,13 @@ class HiveMindMqttProtocol(NetworkProtocol):
     # ------------------------------------------------------------------
 
     def run(self) -> None:
-        LOG.debug(f"[MQTT] protocol config: {self.config}")
-
         broker_host: str = str(self._cfg("broker_host") or "localhost")
         broker_port: int = int(self._cfg("broker_port") or 1883)
+        LOG.debug(
+            f"[MQTT] protocol configured for broker={broker_host}:{broker_port}, "
+            f"tls={bool(self._cfg('tls', False))}"
+        )
+        self._set_broker_ready(False)
 
         self._mqtt = mqtt.Client(client_id=f"hivemind-{self.identity.name or 'master'}")
 
@@ -338,6 +367,13 @@ class HiveMindMqttProtocol(NetworkProtocol):
                 certfile=self._cfg("tls_certfile"),
                 keyfile=self._cfg("tls_keyfile"),
             )
+            if self._cfg("tls_insecure", False):
+                LOG.warning("[MQTT] TLS certificate verification is explicitly disabled")
+                self._mqtt.tls_insecure_set(True)
+
+        reconnect_min = max(1, int(self._cfg("reconnect_min_delay", 1)))
+        reconnect_max = max(reconnect_min, int(self._cfg("reconnect_max_delay", 30)))
+        self._mqtt.reconnect_delay_set(min_delay=reconnect_min, max_delay=reconnect_max)
 
         master_status = self.master_status_topic()
         self._mqtt.will_set(master_status, _OFFLINE, qos=1, retain=True)
@@ -346,8 +382,7 @@ class HiveMindMqttProtocol(NetworkProtocol):
         self._mqtt.on_message = self._on_message
         self._mqtt.on_disconnect = self._on_disconnect
 
-        self._mqtt.connect(broker_host, broker_port, keepalive=60)
-        self._mqtt.publish(master_status, _ONLINE, qos=1, retain=True)
+        self._mqtt.connect_async(broker_host, broker_port, keepalive=60)
 
         # Missing/None → default; any value <= 0 disables the sweep entirely.
         raw_idle = self._cfg("idle_timeout")
@@ -359,4 +394,7 @@ class HiveMindMqttProtocol(NetworkProtocol):
             ).start()
 
         LOG.info(f"[MQTT] listener started — broker={broker_host}:{broker_port}")
-        self._mqtt.loop_forever()
+        try:
+            self._mqtt.loop_forever(retry_first_connection=True)
+        finally:
+            self._set_broker_ready(False)
