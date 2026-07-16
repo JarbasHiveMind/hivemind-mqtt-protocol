@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.2a1](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/tree/0.2.2a1) (2026-07-16)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/compare/0.2.1a1...0.2.2a1)
+
+**Merged pull requests:**
+
+- fix: make broker TLS readiness resilient [\#13](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/pull/13) ([goldyfruit](https://github.com/goldyfruit))
+
 ## [0.2.1a1](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/tree/0.2.1a1) (2026-07-04)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/compare/0.2.0a2...0.2.1a1)
