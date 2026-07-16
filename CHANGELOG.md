@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.2a2](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/tree/0.2.2a2) (2026-07-16)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/compare/0.2.2a1...0.2.2a2)
+
+**Merged pull requests:**
+
+- ci: keep release automation deterministic [\#14](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/pull/14) ([goldyfruit](https://github.com/goldyfruit))
+
 ## [0.2.2a1](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/tree/0.2.2a1) (2026-07-16)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/compare/0.2.1a1...0.2.2a1)
