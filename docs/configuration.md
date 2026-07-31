@@ -1,18 +1,18 @@
 # Configuration Reference
 
-All settings are passed in the `hivemind-mqtt-plugin` block of
+All settings go in the `hivemind-mqtt-plugin` block of
 `~/.config/hivemind-core/server.json`.
 
 | Key | Default | Description |
 |---|---|---|
 | `broker_host` | `localhost` | MQTT broker hostname or IP. |
 | `broker_port` | `1883` | Broker port (use `8883` for TLS). |
-| `broker_username` | — | MQTT broker username for the master. |
-| `broker_password` | — | MQTT broker password for the master. |
+| `broker_username` | none | MQTT broker username for the master. |
+| `broker_password` | none | MQTT broker password for the master. |
 | `tls` | `false` | Enable TLS. |
-| `tls_ca_certs` | — | Path to CA bundle for broker TLS verification. |
-| `tls_certfile` | — | Path to client certificate (mTLS). |
-| `tls_keyfile` | — | Path to client key (mTLS). |
+| `tls_ca_certs` | none | Path to CA bundle for broker TLS verification. |
+| `tls_certfile` | none | Path to client certificate (mTLS). |
+| `tls_keyfile` | none | Path to client key (mTLS). |
 | `topic_prefix` | `hivemind` | Topic namespace prefix. |
 | `qos` | `1` | Default MQTT QoS for control frames. |
 | `idle_timeout` | `300` | Seconds of silence before evicting a peer (0 = off). |
@@ -80,3 +80,6 @@ All settings are passed in the `hivemind-mqtt-plugin` block of
   }
 }
 ```
+
+---
+[← Architecture](architecture.md) · [Home](../README.md) · [Operations →](operations.md)
