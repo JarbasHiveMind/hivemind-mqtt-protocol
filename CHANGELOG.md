@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.2a4](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/tree/0.2.2a4) (2026-07-31)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/compare/0.2.2a3...0.2.2a4)
+
+**Merged pull requests:**
+
+- docs: rewrite README in Simplified Technical English [\#16](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/pull/16) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.2.2a3](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/tree/0.2.2a3) (2026-07-16)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/compare/0.2.2a2...0.2.2a3)
