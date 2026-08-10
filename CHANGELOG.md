@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.2a5](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/tree/0.2.2a5) (2026-08-10)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/compare/0.2.2a4...0.2.2a5)
+
+**Merged pull requests:**
+
+- refactor: drop dead skill/intent blacklist assignment [\#12](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/pull/12) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.2.2a4](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/tree/0.2.2a4) (2026-07-31)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/compare/0.2.2a3...0.2.2a4)
