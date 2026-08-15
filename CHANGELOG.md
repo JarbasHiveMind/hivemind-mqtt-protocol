@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.2a6](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/tree/0.2.2a6) (2026-08-15)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/compare/0.2.2a5...0.2.2a6)
+
+**Merged pull requests:**
+
+- docs: add AGENTS.md with per-repo agent conventions [\#17](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/pull/17) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.2.2a5](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/tree/0.2.2a5) (2026-08-10)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/compare/0.2.2a4...0.2.2a5)
