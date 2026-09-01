@@ -154,7 +154,8 @@ class HiveMindMqttProtocol(NetworkProtocol):
                 payload = payload.encode()
             mqttclient.publish(out, payload, qos=qos_fn(is_bin))
 
-        def do_disconnect() -> None:
+        def do_disconnect(code: int = 1000, reason: str = "") -> None:
+            LOG.debug(f"[MQTT] disconnecting {api_key!r} (code={code}, reason={reason})")
             mqttclient.publish(status, _OFFLINE, qos=1, retain=True)
             with self._lock:
                 self._peers.pop(api_key, None)
