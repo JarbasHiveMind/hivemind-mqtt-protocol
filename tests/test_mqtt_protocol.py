@@ -300,6 +300,17 @@ class TestDisconnect:
         p._mqtt.publish.assert_called_with(status_topic, "offline", qos=1, retain=True)
         assert "sat1" not in p._peers
 
+    def test_do_disconnect_accepts_a_close_code_and_reason(self):
+        """hivemind-core calls client.disconnect(1008, reason) on handshake
+        rejection; the callback wired in here must not TypeError on that call."""
+        p = _make_protocol()
+        p._build_client_connection("sat1")
+        conn = p._peers["sat1"]
+
+        conn.disconnect(1008, "invalid credentials")
+
+        assert "sat1" not in p._peers
+
     def test_disconnect_unknown_peer_is_noop(self):
         p = _make_protocol()
         # Should not raise.
