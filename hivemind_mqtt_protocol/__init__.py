@@ -34,6 +34,7 @@ Two layers, consistent with the design doc:
 
 import threading
 import time
+import uuid
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
@@ -321,7 +322,11 @@ class HiveMindMqttProtocol(NetworkProtocol):
         broker_host: str = str(self._cfg("broker_host") or "localhost")
         broker_port: int = int(self._cfg("broker_port") or 1883)
 
-        self._mqtt = mqtt.Client(client_id=f"hivemind-{self.identity.name or 'master'}")
+        # one broker session per replica: a shared client id makes the broker
+        # treat every replica as the same client reconnecting, and they kick
+        # each other off
+        self._mqtt = mqtt.Client(
+            client_id=f"hivemind-{self.identity.name or 'master'}-{uuid.uuid4().hex[:12]}")
 
         username: Optional[str] = self._cfg("broker_username")
         password: Optional[str] = self._cfg("broker_password")
