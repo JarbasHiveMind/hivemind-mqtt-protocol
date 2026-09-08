@@ -157,9 +157,9 @@ class HiveMindMqttProtocol(NetworkProtocol):
         def do_disconnect(code: int = 1000, reason: str = "") -> None:
             LOG.debug(f"[MQTT] disconnecting {api_key!r} (code={code}, reason={reason})")
             mqttclient.publish(status, _OFFLINE, qos=1, retain=True)
-            with self._lock:
-                self._peers.pop(api_key, None)
-                self._last_seen.pop(api_key, None)
+            # the same teardown the broker's last-will path runs, so a
+            # session core closes leaves core's client table too
+            self._disconnect_peer(api_key)
 
         conn = HiveMindClientConnection(
             key=api_key,
@@ -179,7 +179,6 @@ class HiveMindMqttProtocol(NetworkProtocol):
             return None
 
         conn.name = f"{api_key}::{user.client_id}::{user.name}"
-        conn.crypto_key = user.crypto_key
         conn.allowed_types = user.allowed_types
         conn.can_broadcast = user.can_broadcast
         conn.can_propagate = user.can_propagate
@@ -189,15 +188,6 @@ class HiveMindMqttProtocol(NetworkProtocol):
             conn.pswd_handshake = PasswordHandShake(user.password, min_bits=runtime_password_min_bits())
 
         conn.node_type = HiveMindNodeType.NODE
-
-        if (
-            not conn.crypto_key
-            and not self.hm_protocol.handshake_enabled
-            and self.hm_protocol.require_crypto
-        ):
-            LOG.error("[MQTT] No crypto key and handshake disabled but require_crypto=True")
-            self.hm_protocol.handle_invalid_protocol_version(conn)
-            return None
 
         with self._lock:
             self._peers[api_key] = conn
@@ -266,9 +256,16 @@ class HiveMindMqttProtocol(NetworkProtocol):
                 return
 
         try:
-            message = conn.decode(self._coerce_payload(payload))
+            if conn.noise_transport is None:
+                payload = self._coerce_payload(payload)
+            message = conn.decode(payload)
         except Exception as e:
             LOG.warning(f"[MQTT] Failed to decode frame from {api_key!r}: {e}")
+            return
+
+        if message is None:
+            # one chunk of a multi-frame Noise message; the transport is
+            # still buffering and hands back the message with the last chunk
             return
 
         self.hm_protocol.handle_message(message, conn)

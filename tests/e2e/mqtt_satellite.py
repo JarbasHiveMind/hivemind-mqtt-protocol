@@ -6,8 +6,8 @@ wiring with genuine MQTT publish / subscribe against a
 :class:`tests.e2e.broker.FakeMqttBroker`.
 
 Outbound frames are encoded exactly as a production satellite encodes them
-(mirroring ``HiveMindClientConnection.send`` — plaintext for the handshake
-bootstrap, AES-GCM ciphertext-JSON once a crypto key is negotiated) and
+(mirroring ``HiveMessageBusClient.emit`` — plaintext JSON until the Noise
+handshake completes, Noise transport frames from then on) and
 published to ``<prefix>/<api_key>/in``.  Inbound frames arrive on
 ``<prefix>/<api_key>/out``, are decoded, and dispatched through the slave
 protocol's handlers.
@@ -23,14 +23,10 @@ from typing import Union
 from ovos_bus_client.message import Message
 from ovos_bus_client.session import Session
 from hivemind_bus_client.message import HiveMessage, HiveMessageType
-from hivemind_bus_client.encryption import encrypt_as_json, decrypt_from_json
+from hivemind_bus_client.serialization import decode_bitstring
 from hivescope.node import SatelliteNode
 
 from .broker import FakeMqttBroker
-
-# Frame types that travel as plaintext (the handshake bootstrap), mirroring
-# HiveMindClientConnection.send / .decode.
-_PLAINTEXT_TYPES = {HiveMessageType.HANDSHAKE, HiveMessageType.HELLO}
 
 
 class MqttSatellite:
@@ -136,46 +132,38 @@ class MqttSatellite:
             self.client.publish(self.status_topic, "offline", qos=1, retain=True)
             self.client.disconnect()
 
-    # -- codec ---------------------------------------------------------
-    #
-    # Encode/decode mirror HiveMindClientConnection.send / .decode exactly,
-    # keyed on the slave protocol's evolving crypto state (set on the shim
-    # during the handshake). The handshake bootstrap frames travel as
-    # plaintext; once a crypto_key is negotiated everything is AES-GCM JSON.
-
-    def _encode(self, message: HiveMessage) -> str:
-        shim = self.node.shim
-        if shim.crypto_key and message.msg_type not in _PLAINTEXT_TYPES:
-            return encrypt_as_json(
-                key=shim.crypto_key,
-                plaintext=message.serialize(),
-                cipher=shim.cipher,
-                encoding=shim.json_encoding,
-            )
-        return message.serialize()
-
-    def _decode(self, payload) -> HiveMessage:
-        shim = self.node.shim
-        if isinstance(payload, bytes):
-            payload = payload.decode()
-        if shim.crypto_key and "ciphertext" in payload:
-            payload = decrypt_from_json(
-                key=shim.crypto_key,
-                ciphertext_json=payload,
-                cipher=shim.cipher,
-                encoding=shim.json_encoding,
-            )
-        data = json.loads(payload)
-        return HiveMessage(**data)
-
     # -- transport -----------------------------------------------------
+    #
+    # Mirrors HiveMessageBusClient: before the Noise handshake completes every
+    # frame is plaintext JSON; once the slave protocol installs the transport
+    # on the shim, every frame in both directions is a Noise transport
+    # message (the post-handshake HELLO included).
 
     def _emit_upstream(self, message: Union[HiveMessage, Message]) -> None:
-        """Encode a HiveMessage and publish it to the inbound topic."""
+        """Publish a HiveMessage to the inbound topic."""
         if isinstance(message, Message):
             message = HiveMessage(HiveMessageType.BUS, payload=message)
         self.node.recorder.record("out", message.msg_type, message._payload, "master")
-        self.client.publish(self.in_topic, self._encode(message), qos=1)
+        transport = getattr(self.node.shim, "noise_transport", None)
+        if transport is None:
+            self.client.publish(self.in_topic, message.serialize(), qos=1)
+            return
+        transport.send_message(
+            message.serialize(),
+            lambda frame: self.client.publish(self.in_topic, frame, qos=1))
+
+    def _decode(self, payload) -> Union[HiveMessage, None]:
+        transport = getattr(self.node.shim, "noise_transport", None)
+        if transport is not None:
+            payload = transport.decrypt_frame(bytes(payload))
+            if payload is None:  # one chunk of a multi-frame message
+                return None
+        if isinstance(payload, (bytes, bytearray)):
+            try:
+                payload = bytes(payload).decode("utf-8")
+            except UnicodeDecodeError:
+                return decode_bitstring(bytes(payload))
+        return HiveMessage(**json.loads(payload))
 
     def _on_message(self, client, userdata, msg) -> None:
         """Master → satellite: decode and dispatch through the slave handlers."""
@@ -184,6 +172,8 @@ class MqttSatellite:
         try:
             message = self._decode(msg.payload)
         except Exception:
+            return
+        if message is None:
             return
         self.node.recorder.record("in", message.msg_type, message._payload, "master")
         # The slave protocol registered its handlers on shim.emitter via on().

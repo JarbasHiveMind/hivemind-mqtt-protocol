@@ -75,10 +75,13 @@ def mqtt_master(monkeypatch):
     # Wait for the broker connection + subscriptions to be in place.
     deadline = 5.0
     waited = 0.0
-    while protocol._mqtt is None and waited < deadline:
+    def _subscribed() -> bool:
+        return any(s.client is protocol._mqtt for s in broker._subs)
+
+    while not _subscribed() and waited < deadline:
         threading.Event().wait(0.01)
         waited += 0.01
-    assert protocol._mqtt is not None, "master never connected to broker"
+    assert _subscribed(), "master never connected to broker"
 
     handle = MqttMaster(broker=broker, protocol=protocol, master=master, prefix=prefix)
     try:

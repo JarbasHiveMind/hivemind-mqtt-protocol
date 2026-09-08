@@ -43,10 +43,10 @@ def test_master_subscribes_to_inbound_and_status_wildcards(mqtt_master):
 # --- handshake ------------------------------------------------------------
 
 def test_satellite_completes_handshake_over_mqtt(connected_satellite):
-    """HELLO/HANDSHAKE complete and a crypto key is negotiated."""
+    """HELLO/HANDSHAKE complete and the Noise session is established."""
     _master, sat = connected_satellite
     assert sat.node.shim.handshake_event.is_set()
-    assert sat.node.shim.crypto_key, "no crypto key after handshake"
+    assert sat.node.shim.noise_transport is not None, "no Noise transport after handshake"
 
 
 def test_satellite_appears_as_connected_peer(connected_satellite):
@@ -99,8 +99,8 @@ def test_upstream_bus_message_reaches_listener(connected_satellite):
 
 
 def test_upstream_bus_message_is_encrypted_on_the_wire(connected_satellite):
-    """The bytes published to the inbound topic are AES-GCM ciphertext-JSON,
-    never plaintext — the broker only ever sees ciphertext."""
+    """The bytes published to the inbound topic are a Noise transport frame,
+    never plaintext — the broker only ever sees ciphertext (TRANSPORT-1 §5)."""
     master, sat = connected_satellite
     before = len(master.broker.published)
     sat.emit_bus(Message("recognizer_loop:utterance",
@@ -111,7 +111,8 @@ def test_upstream_bus_message_is_encrypted_on_the_wire(connected_satellite):
     assert inbound, "nothing published to the inbound topic"
     frame = inbound[-1]
     assert b"a very secret phrase" not in frame
-    assert b"ciphertext" in frame
+    assert b"recognizer_loop:utterance" not in frame
+    assert not frame.lstrip().startswith((b"{", b"[")), "plaintext JSON on the wire"
 
 
 def test_downstream_bus_message_reaches_satellite_bus(connected_satellite):
