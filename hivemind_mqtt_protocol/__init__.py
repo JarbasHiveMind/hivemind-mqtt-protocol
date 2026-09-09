@@ -1,5 +1,11 @@
 """
+Implements the MQTT binding of HIVEMIND-TRANSPORT-1 §5. A binding MUST define
+a topic scheme comprising a client-to-server topic, a server-to-client topic,
+and a retained status topic per satellite. Disconnect detection MUST use the
+broker's last-will mechanism.
+
 HiveMind MQTT Network Protocol Plugin
+====================================
 
 Transports encrypted HiveMessage frames over an MQTT broker so that any
 satellite — including embedded ESP32 devices — can ride an existing IoT/HA
