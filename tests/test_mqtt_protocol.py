@@ -705,6 +705,22 @@ class TestRun:
         mock_client_instance.connect.assert_called_once_with("127.0.0.1", 1883, keepalive=60)
         mock_client_instance.loop_forever.assert_called_once()
 
+    def test_run_gives_each_replica_its_own_client_id(self):
+        """Two listeners for one identity must not share a broker client id:
+        the broker treats a shared id as one client reconnecting, so replicas
+        kick each other off and loop on reconnects."""
+        import paho.mqtt.client as paho_mqtt
+        ids = []
+        for _ in range(2):
+            p = _make_protocol()
+            with patch.object(paho_mqtt, "Client",
+                              return_value=self._make_mock_mqtt_client()) as client_cls:
+                p.run()
+            ids.append(client_cls.call_args.kwargs["client_id"])
+        name = p.identity.name or "master"
+        assert ids[0] != ids[1]
+        assert all(i.startswith(f"hivemind-{name}-") for i in ids)
+
     def test_run_sets_callbacks(self):
         """run() installs on_connect, on_message, on_disconnect."""
         p = _make_protocol()
