@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.5a2](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/tree/0.2.5a2) (2026-09-10)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/compare/0.2.5a1...0.2.5a2)
+
+**Merged pull requests:**
+
+- docs: cite the governing specification in the module docstring [\#21](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/pull/21) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.2.5a1](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/tree/0.2.5a1) (2026-09-10)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/compare/0.2.4a1...0.2.5a1)
