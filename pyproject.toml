@@ -15,13 +15,13 @@ dependencies = [
     "paho-mqtt>=1.6",
     "hivemind-plugin-manager",
     "poorman-handshake>=2.0.0a1,<3.0.0",
-    "hivemind-core",
+    "hivemind-core>=5.1.0a2,<6.0.0",
 ]
 
 [project.optional-dependencies]
 test = [
     "pytest",
-    "hivemind-core",
+    "hivemind-core>=5.1.0a2,<6.0.0",
     "hivemind-bus-client",
     "ovos-bus-client",
     "ovos-utils",
@@ -32,7 +32,7 @@ test = [
 # floor is a prerelease pinned as the minimum so pip resolves it without --pre.
 e2e = [
     "pytest",
-    "hivemind-core",
+    "hivemind-core>=5.1.0a2,<6.0.0",
     "hivemind-bus-client",
     "ovos-bus-client",
     "ovos-utils",

@@ -29,7 +29,7 @@ class _FakeClientConnection:
         for k, v in kwargs.items():
             setattr(self, k, v)
         self.peer = kwargs.get("name", "peer")
-        self.crypto_key = None
+        self.noise_transport = None
         self.msg_blacklist = []
         self.allowed_types = []
         self.can_broadcast = True
@@ -73,8 +73,6 @@ def _make_protocol(config=None):
     hm = MagicMock(name="hm_protocol")
     hm.identity = MagicMock(name="identity")
     hm.identity.name = "testkey"
-    hm.handshake_enabled = True
-    hm.require_crypto = False
     # Always inject api_key via config so _api_key() doesn't go through the
     # identity property chain (MagicMock.name is a reserved attribute).
     base_config = {"api_key": "testkey"}
@@ -86,7 +84,6 @@ def _make_protocol(config=None):
     user = MagicMock(name="user")
     user.client_id = 42
     user.name = "testclient"
-    user.crypto_key = None
     user.message_blacklist = []
     user.allowed_types = []
     user.can_broadcast = True
@@ -269,6 +266,22 @@ class TestSendMsg:
 # ---------------------------------------------------------------------------
 
 
+class TestMultiFrameChunks:
+    def test_a_chunk_of_a_multi_frame_message_is_not_dispatched(self):
+        """decode() returns None for every chunk but the last of a fragmented
+        Noise message; only the assembled message may reach handle_message."""
+        from types import SimpleNamespace
+        p = _make_protocol()
+        conn = p._build_client_connection("sat1")
+        conn.noise_transport = object()  # a live Noise session
+        conn.decode = lambda payload: None
+        p.hm_protocol.handle_message.reset_mock()
+
+        p._on_message(p._mqtt, None, SimpleNamespace(topic=p.in_topic("sat1"), payload=b"\x04chunk"))
+
+        p.hm_protocol.handle_message.assert_not_called()
+
+
 class TestDisconnect:
     def test_disconnect_removes_from_map(self):
         p = _make_protocol()
@@ -287,6 +300,19 @@ class TestDisconnect:
         p._disconnect_peer("sat1")
 
         p.hm_protocol.handle_client_disconnected.assert_called_once()
+
+    def test_core_initiated_disconnect_reaches_the_protocol(self):
+        """conn.disconnect() is how core closes a session (a bad frame, a
+        failed handshake, a rejected message type); the peer must leave
+        core's client table the same way the broker's last-will path does."""
+        p = _make_protocol()
+        conn = p._build_client_connection("sat1")
+        p.hm_protocol.handle_client_disconnected.reset_mock()
+
+        conn.disconnect(1008, "test")
+
+        p.hm_protocol.handle_client_disconnected.assert_called_once_with(conn)
+        assert "sat1" not in p._peers
 
     def test_do_disconnect_publishes_tombstone(self):
         p = _make_protocol()
@@ -497,30 +523,6 @@ class TestOnConnect:
         mock_client = MagicMock(name="client")
         p._on_connect(mock_client, None, {}, 1)
         mock_client.subscribe.assert_not_called()
-
-
-# ---------------------------------------------------------------------------
-# require_crypto path
-# ---------------------------------------------------------------------------
-
-
-class TestRequireCrypto:
-    def test_no_crypto_key_and_require_crypto_rejects(self):
-        p = _make_protocol()
-        p.hm_protocol.handshake_enabled = False
-        p.hm_protocol.require_crypto = True
-        conn = p._build_client_connection("sat1")
-        assert conn is None
-        p.hm_protocol.handle_invalid_protocol_version.assert_called_once()
-
-    def test_crypto_key_present_allows_connection(self):
-        p = _make_protocol()
-        p.hm_protocol.handshake_enabled = False
-        p.hm_protocol.require_crypto = True
-        user = p.hm_protocol.db.get_client_by_api_key.return_value
-        user.crypto_key = "some-key"
-        conn = p._build_client_connection("sat1")
-        assert conn is not None
 
 
 # ---------------------------------------------------------------------------
