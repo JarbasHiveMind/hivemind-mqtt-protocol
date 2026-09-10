@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.4a1](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/tree/0.2.4a1) (2026-09-10)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/compare/0.2.3a1...0.2.4a1)
+
+**Merged pull requests:**
+
+- fix: build the client connection without the retired crypto\_key field [\#20](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/pull/20) ([JarbasAl](https://github.com/JarbasAl))
+
 ## [0.2.3a1](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/tree/0.2.3a1) (2026-09-01)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/compare/0.2.2a6...0.2.3a1)
