@@ -5,6 +5,7 @@ All tests use mocked paho-mqtt and mocked hivemind-core objects — no live
 broker is required.
 """
 
+import os
 import threading
 import time
 from unittest.mock import MagicMock, patch
@@ -124,6 +125,30 @@ class TestTopics:
         p = _make_protocol({"topic_prefix": "hm", "api_key": "mykey"})
         assert p.in_topic("x") == "hm/x/in"
 
+    def test_hub_scoped_topics_match_sdk_layout(self):
+        p = _make_protocol({"topic_prefix": "hm", "hub_id": "hub-1"})
+        assert p.in_topic("sat1") == "hm/hub-1/c2s/sat1"
+        assert p.out_topic("sat1") == "hm/hub-1/s2c/sat1"
+        assert p.status_topic("sat1") == "hm/hub-1/status/sat1"
+
+    def test_configured_broker_client_id_wins(self):
+        p = _make_protocol({"client_id": "fixed-client"})
+        assert p._broker_client_id() == "fixed-client"
+
+    def test_broker_client_id_uses_hashed_replica_suffix(self):
+        p = _make_protocol({"hub_id": "hub-1", "client_id_suffix": "pod-a"})
+        other = _make_protocol({"hub_id": "hub-1", "client_id_suffix": "pod-b"})
+
+        assert p._broker_client_id().startswith("hivemind-hub-1-")
+        assert p._broker_client_id() != other._broker_client_id()
+        assert "pod-a" not in p._broker_client_id()
+
+    def test_managed_master_will_stays_inside_the_hub_acl(self):
+        p = _make_protocol({"topic_prefix": "hm", "hub_id": "hub-1"})
+
+        assert p.master_status_topic() == "hm/hub-1/status/testkey"
+        assert p.master_status_topic().startswith("hm/hub-1/")
+
     def test_c2s_wildcard(self):
         p = _make_protocol()
         assert p.in_wildcard() == "hivemind/+/in"
@@ -132,16 +157,48 @@ class TestTopics:
         p = _make_protocol()
         assert p.status_wildcard() == "hivemind/+/status"
 
+    def test_hub_scoped_wildcards(self):
+        p = _make_protocol({"hub_id": "hub-1"})
+        assert p.in_wildcard() == "hivemind/hub-1/c2s/+"
+        assert p.status_wildcard() == "hivemind/hub-1/status/+"
+
     def test_api_key_from_in_topic(self):
-        topic = "hivemind/sat42/in"
-        assert HiveMindMqttProtocol._api_key_from_topic(topic) == "sat42"
+        p = _make_protocol()
+        assert p._parse_topic("hivemind/sat42/in") == ("in", "sat42")
 
     def test_api_key_from_status_topic(self):
-        topic = "hivemind/sat99/status"
-        assert HiveMindMqttProtocol._api_key_from_topic(topic) == "sat99"
+        p = _make_protocol()
+        assert p._parse_topic("hivemind/sat99/status") == ("status", "sat99")
+
+    def test_api_key_from_hub_scoped_topic(self):
+        p = _make_protocol({"hub_id": "hub-1"})
+        assert p._parse_topic("hivemind/hub-1/c2s/sat99") == ("c2s", "sat99")
 
     def test_api_key_short_topic_returns_none(self):
-        assert HiveMindMqttProtocol._api_key_from_topic("bad") is None
+        assert _make_protocol()._parse_topic("bad") == (None, None)
+
+    def test_a_standalone_key_named_like_a_direction_is_still_a_key(self):
+        """Under a multi-level prefix, `tenant/hm/c2s/in` is satellite `c2s`
+        sending in -- not the managed layout with `in` as the key."""
+        p = _make_protocol({"topic_prefix": "tenant/hm"})
+        for key in ("c2s", "s2c", "status"):
+            assert p._parse_topic(f"tenant/hm/{key}/in") == ("in", key)
+            assert p._parse_topic(f"tenant/hm/{key}/status") == ("status", key)
+
+    def test_a_topic_outside_the_listeners_layout_is_rejected(self):
+        managed = _make_protocol({"hub_id": "hub-1"})
+        assert managed._parse_topic("hivemind/hub-2/c2s/sat1") == (None, None)
+        assert managed._parse_topic("hivemind/hub-1/sat1/in") == (None, None)
+        assert _make_protocol()._parse_topic("other/sat1/in") == (None, None)
+
+    def test_a_key_named_like_a_direction_is_routed_to_its_own_client(self):
+        p = _make_protocol({"topic_prefix": "tenant/hm"})
+        p._build_client_connection = MagicMock(return_value=None)
+
+        msg = MagicMock(topic="tenant/hm/c2s/in", payload=b"payload")
+        p._on_message(p._mqtt, None, msg)
+
+        p._build_client_connection.assert_called_once_with("c2s")
 
 
 # ---------------------------------------------------------------------------
@@ -381,12 +438,27 @@ class TestLWT:
         """The master's own status echo (<prefix>/<master_name>/status) must
         not be treated as a satellite going offline."""
         p = _make_protocol()  # identity.name == "testkey"
-        p.hm_protocol.handle_client_disconnected.reset_mock()
+        # handle_client_disconnected only fires for a registered peer, so it
+        # stays silent either way; the echo must not reach the peer path.
+        p._disconnect_peer = MagicMock()
 
         msg = self._make_msg("hivemind/testkey/status", b"offline")
         p._on_message(p._mqtt, None, msg)
 
-        p.hm_protocol.handle_client_disconnected.assert_not_called()
+        p._disconnect_peer.assert_not_called()
+
+    def test_managed_master_self_status_offline_is_ignored(self):
+        """With hub_id set, the self-echo arrives on
+        <prefix>/<hub_id>/status/<master_name> and is ignored too."""
+        p = _make_protocol({"hub_id": "hub-1"})  # identity.name == "testkey"
+        # handle_client_disconnected only fires for a registered peer, so it
+        # stays silent either way; the echo must not reach the peer path.
+        p._disconnect_peer = MagicMock()
+
+        msg = self._make_msg("hivemind/hub-1/status/testkey", b"offline")
+        p._on_message(p._mqtt, None, msg)
+
+        p._disconnect_peer.assert_not_called()
 
     def test_c2s_message_routed_to_handle_message(self):
         p = _make_protocol()
@@ -394,6 +466,16 @@ class TestLWT:
         p.hm_protocol.handle_message.reset_mock()
 
         msg = self._make_msg("hivemind/sat1/in", b"payload")
+        p._on_message(p._mqtt, None, msg)
+
+        p.hm_protocol.handle_message.assert_called_once()
+
+    def test_hub_scoped_c2s_message_routed_to_handle_message(self):
+        p = _make_protocol({"hub_id": "hub-1"})
+        p._build_client_connection("sat1")
+        p.hm_protocol.handle_message.reset_mock()
+
+        msg = self._make_msg("hivemind/hub-1/c2s/sat1", b"payload")
         p._on_message(p._mqtt, None, msg)
 
         p.hm_protocol.handle_message.assert_called_once()
@@ -534,7 +616,7 @@ class TestPasswordHandshake:
     def test_user_with_password_sets_pswd_handshake(self):
         p = _make_protocol()
         user = p.hm_protocol.db.get_client_by_api_key.return_value
-        user.password = "s3cr3t"
+        user.password = "correct horse battery staple satellite 2026"
         conn = p._build_client_connection("sat1")
         assert conn is not None
         assert conn.pswd_handshake is not None
@@ -705,21 +787,63 @@ class TestRun:
         mock_client_instance.connect.assert_called_once_with("127.0.0.1", 1883, keepalive=60)
         mock_client_instance.loop_forever.assert_called_once()
 
+    def _client_id_for(self, config=None):
+        import paho.mqtt.client as paho_mqtt
+        p = _make_protocol(config or {})
+        with patch.object(paho_mqtt, "Client",
+                          return_value=self._make_mock_mqtt_client()) as client_cls:
+            p.run()
+        return p, client_cls.call_args.kwargs["client_id"]
+
     def test_run_gives_each_replica_its_own_client_id(self):
         """Two listeners for one identity must not share a broker client id:
         the broker treats a shared id as one client reconnecting, so replicas
-        kick each other off and loop on reconnects."""
-        import paho.mqtt.client as paho_mqtt
-        ids = []
-        for _ in range(2):
-            p = _make_protocol()
-            with patch.object(paho_mqtt, "Client",
-                              return_value=self._make_mock_mqtt_client()) as client_cls:
-                p.run()
-            ids.append(client_cls.call_args.kwargs["client_id"])
+        kick each other off and loop on reconnects.
+
+        What separates one replica from another is its own hostname, which is
+        what ``client_id_suffix`` stands in for here. Building two protocols in
+        one process does not make two replicas -- they would share a hostname,
+        and so share an id, which is the case this test exists to forbid.
+        """
+        _, first = self._client_id_for({"client_id_suffix": "replica-a"})
+        p, second = self._client_id_for({"client_id_suffix": "replica-b"})
         name = p.identity.name or "master"
-        assert ids[0] != ids[1]
-        assert all(i.startswith(f"hivemind-{name}-") for i in ids)
+        assert first != second
+        assert all(i.startswith(f"hivemind-{name}-") for i in (first, second))
+
+    def test_the_machine_hostname_stands_in_when_hostname_is_unset(self):
+        """$HOSTNAME is a shell variable and systemd does not export it.
+        Without a suffix, replicas on different machines shared one id."""
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("HOSTNAME", None)
+            with patch("socket.gethostname", return_value="machine-a"):
+                a = _make_protocol({"hub_id": "hub-1"})._broker_client_id()
+            with patch("socket.gethostname", return_value="machine-b"):
+                b = _make_protocol({"hub_id": "hub-1"})._broker_client_id()
+        assert a != b
+        assert a.startswith("hivemind-hub-1-")
+
+    def test_run_keeps_one_replica_on_the_same_client_id(self):
+        """And the same replica keeps its id across a restart.
+
+        A random id also stops replicas colliding, but it changes every time the
+        process starts: the broker keeps the old session, and a broker that
+        authorises by client id stops matching its ACL entry. Derived from the
+        hostname, the id survives the restart.
+        """
+        _, before = self._client_id_for({"client_id_suffix": "replica-a"})
+        _, after = self._client_id_for({"client_id_suffix": "replica-a"})
+        assert before == after
+
+    def test_run_uses_configured_client_id(self):
+        p = _make_protocol({"client_id": "hm-fixed"})
+        mock_client_instance = self._make_mock_mqtt_client()
+
+        import paho.mqtt.client as paho_mqtt
+        with patch.object(paho_mqtt, "Client", return_value=mock_client_instance) as client_cls:
+            p.run()
+
+        client_cls.assert_called_once_with(client_id="hm-fixed")
 
     def test_run_sets_callbacks(self):
         """run() installs on_connect, on_message, on_disconnect."""
@@ -775,6 +899,7 @@ class TestRun:
             certfile="/client.crt",
             keyfile="/client.key",
         )
+        mock_client_instance.tls_insecure_set.assert_not_called()
 
     def test_run_tls_disabled(self):
         """run() does not call tls_set when tls=False (default)."""
@@ -786,6 +911,7 @@ class TestRun:
             p.run()
 
         mock_client_instance.tls_set.assert_not_called()
+        mock_client_instance.tls_insecure_set.assert_not_called()
 
     def test_run_publishes_hub_online(self):
         """run() publishes 'online' to the hub status topic after connect."""
@@ -815,6 +941,18 @@ class TestRun:
         args = mock_client_instance.will_set.call_args[0]
         assert "/status" in args[0]
         assert args[1] == "offline"
+
+    def test_run_managed_will_is_authorized_by_the_hub_topic_tree(self):
+        p = _make_protocol({"topic_prefix": "hm", "hub_id": "hub-1"})
+        mock_client_instance = self._make_mock_mqtt_client()
+
+        import paho.mqtt.client as paho_mqtt
+        with patch.object(paho_mqtt, "Client", return_value=mock_client_instance):
+            p.run()
+
+        mock_client_instance.will_set.assert_called_once_with(
+            "hm/hub-1/status/testkey", "offline", qos=1, retain=True
+        )
 
     def test_run_idle_sweep_thread_started(self):
         """run() starts the idle-sweep daemon thread when idle_timeout > 0."""
