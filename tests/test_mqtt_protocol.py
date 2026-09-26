@@ -721,6 +721,34 @@ class TestRun:
         assert ids[0] != ids[1]
         assert all(i.startswith(f"hivemind-{name}-") for i in ids)
 
+    def test_run_keeps_the_broker_password_out_of_the_log(self):
+        """run() logs its configuration at debug level; the password must not
+        be in it, and it must still reach the broker unchanged."""
+        secret = "s3cret-broker-pw"
+        p = _make_protocol({"broker_username": "hub", "broker_password": secret})
+        client = self._make_mock_mqtt_client()
+        logged = []
+
+        import paho.mqtt.client as paho_mqtt
+
+        import hivemind_mqtt_protocol as module
+
+        def capture(msg, *args, **kwargs):
+            logged.append(msg % args if args else str(msg))
+
+        with patch.object(paho_mqtt, "Client", return_value=client), \
+                patch.object(module.LOG, "debug", side_effect=capture):
+            p.run()
+
+        assert logged, "run() no longer logs its configuration"
+        assert not any(secret in line for line in logged), logged
+        client.username_pw_set.assert_called_once_with("hub", secret)
+
+    def test_the_protocol_repr_does_not_carry_the_broker_password(self):
+        """A host that logs the loaded protocol object prints its repr."""
+        p = _make_protocol({"broker_password": "s3cret-broker-pw"})
+        assert "s3cret-broker-pw" not in repr(p)
+
     def test_run_sets_callbacks(self):
         """run() installs on_connect, on_message, on_disconnect."""
         p = _make_protocol()
