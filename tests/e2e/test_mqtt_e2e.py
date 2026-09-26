@@ -50,11 +50,22 @@ def test_satellite_completes_handshake_over_mqtt(connected_satellite):
 
 
 def test_satellite_appears_as_connected_peer(connected_satellite):
-    """After the handshake the master tracks exactly one logical peer."""
+    """After the handshake the master tracks exactly one logical peer.
+
+    This cell used to assert ``sat.api_key in peers[0]``, which pinned the
+    credential INTO the peer id. That is the defect, not the contract: the peer
+    id is what core stamps into ``context["source"]`` of every injected
+    message, so a key there is on the Layer-1 bus. The cell now asserts the
+    peer is identified without its credential.
+    """
     master, sat = connected_satellite
     peers = _wait(lambda: list(master.listener.clients) or None)
     assert peers and len(peers) == 1
-    assert sat.api_key in peers[0]
+    assert sat.api_key not in peers[0], (
+        "the access key is in the peer id, which reaches context['source'] on "
+        f"every injected message: {peers[0]!r}")
+    assert peers[0].startswith("mqtt::"), (
+        f"the peer id should name the transport and the client; got {peers[0]!r}")
 
 
 def test_satellite_publishes_retained_online(connected_satellite):

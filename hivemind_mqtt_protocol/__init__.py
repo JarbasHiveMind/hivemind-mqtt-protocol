@@ -38,6 +38,7 @@ Two layers, consistent with the design doc:
      arrives.  No separate credential handshake is needed at the MQTT layer.
 """
 
+import hashlib
 import threading
 import time
 import uuid
@@ -82,6 +83,44 @@ def _redacted_config(config: dict[str, Any]) -> dict[str, Any]:
         key: ("***" if key in _SECRET_CONFIG_KEYS and value else value)
         for key, value in config.items()
     }
+
+
+def _key_id(api_key: str) -> str:
+    """A stable, non-reversible label for one access key, for logs.
+
+    The access key IS the satellite's credential: it is what
+    ``get_client_by_api_key`` is called with, so a log line that carries it
+    hands an operator's log reader a working identity. The reference
+    WebSocket binding refuses to log it in any recoverable form for that
+    reason, keeping only a length.
+
+    A length is not enough here. These logs exist to follow one peer across
+    connect, decode failure, idle timeout and disconnect, and every key has
+    the same length. So the label is the first 8 hex characters of the
+    SHA-256 of the key: the same key always gives the same label, and the key
+    cannot be read back out of it. Truncating the key itself would have done
+    neither.
+
+    Two limits, stated rather than implied.
+
+    The label is 32 bits. Two labels collide with even chance at about 77000
+    keys, so "two keys rarely collide" is true for a house and not for a large
+    fleet; at that size two satellites can share a label, which is the one
+    thing the helper exists to prevent. Take more characters if that day comes.
+
+    The hash is UNSALTED, so against a GUESSABLE key the label is an offline
+    oracle: hash the candidates and compare 8 characters. That is acceptable
+    here and the reason is the key, not the label. ``hivemind-core`` mints an
+    access key as ``os.urandom(16).hex()``, 128 bits, against which the label
+    tells an attacker nothing. A salt would not close the gap either: the
+    node's public key is public, so salting with it defeats cross-node linkage
+    and not a dictionary attack, and a secret salt would break the label's
+    stability across a rotation. The real exposure is that an operator-supplied
+    access key gets NO strength check while a password does, which is core's to
+    answer and is filed there.
+    """
+    return "key#" + hashlib.sha256(api_key.encode("utf-8")).hexdigest()[:8]
+
 
 @dataclass
 class HiveMindMqttProtocol(NetworkProtocol):
@@ -175,7 +214,7 @@ class HiveMindMqttProtocol(NetworkProtocol):
             mqttclient.publish(out, payload, qos=qos_fn(is_bin))
 
         def do_disconnect(code: int = 1000, reason: str = "") -> None:
-            LOG.debug(f"[MQTT] disconnecting {api_key!r} (code={code}, reason={reason})")
+            LOG.debug(f"[MQTT] disconnecting {_key_id(api_key)} (code={code}, reason={reason})")
             mqttclient.publish(status, _OFFLINE, qos=1, retain=True)
             # the same teardown the broker's last-will path runs, so a
             # session core closes leaves core's client table too
@@ -186,7 +225,13 @@ class HiveMindMqttProtocol(NetworkProtocol):
             disconnect=do_disconnect,
             send_msg=do_send,
             sess=Session(session_id="default"),
-            name=api_key,
+            # NOT the access key. ``name`` feeds ``HiveMindClientConnection.peer``,
+            # which core stamps into ``context["source"]`` of every injected
+            # message, so a credential here reaches the bus and not just a log.
+            # This value is used before the DB row resolves (the invalid-key
+            # path logs and hands this connection to core), so it has to be a
+            # non-secret label rather than a name taken from the row.
+            name=_key_id(api_key),
             hm_protocol=self.hm_protocol,
         )
 
@@ -194,11 +239,17 @@ class HiveMindMqttProtocol(NetworkProtocol):
         user = self.hm_protocol.db.get_client_by_api_key(api_key)
 
         if not user:
-            LOG.error(f"[MQTT] Invalid api_key in topic: {api_key!r}")
+            LOG.error(f"[MQTT] Invalid api_key in topic: {_key_id(api_key)}")
             self.hm_protocol.handle_invalid_key_connected(conn)
             return None
 
-        conn.name = f"{api_key}::{user.client_id}::{user.name}"
+        # The reference bindings compose this as
+        # f"{useragent}::{client_id}::{name}" (hivemind-websocket-protocol,
+        # hivemind-http-protocol) and never put the credential in it. MQTT has
+        # no useragent, so the transport takes that slot. The access key MUST
+        # NOT appear: ``peer`` is built from this, and core stamps ``peer`` into
+        # ``context["source"]``, which every bus observer reads.
+        conn.name = f"mqtt::{user.client_id}::{user.name}"
         conn.allowed_types = user.allowed_types
         conn.can_broadcast = user.can_broadcast
         conn.can_propagate = user.can_propagate
@@ -214,7 +265,11 @@ class HiveMindMqttProtocol(NetworkProtocol):
             self._last_seen[api_key] = time.monotonic()
 
         self.hm_protocol.handle_new_client(conn)
-        LOG.info(f"[MQTT] New connection: {conn.name!r}")
+        # The client id and the client name say which satellite this is
+        # without saying how to be it, and the label follows it across
+        # connect, decode failure, idle timeout and disconnect.
+        LOG.info(f"[MQTT] New connection: {user.client_id}/{user.name!r} "
+                 f"({_key_id(api_key)})")
         return conn
 
     def _disconnect_peer(self, api_key: str) -> None:
@@ -222,7 +277,7 @@ class HiveMindMqttProtocol(NetworkProtocol):
             conn = self._peers.pop(api_key, None)
             self._last_seen.pop(api_key, None)
         if conn is not None:
-            LOG.info(f"[MQTT] Disconnecting peer {api_key!r}")
+            LOG.info(f"[MQTT] Disconnecting peer {_key_id(api_key)}")
             self.hm_protocol.handle_client_disconnected(conn)
 
     # ------------------------------------------------------------------
@@ -258,7 +313,7 @@ class HiveMindMqttProtocol(NetworkProtocol):
                 return
             status_val = payload.decode(errors="replace").strip()
             if status_val == _OFFLINE:
-                LOG.info(f"[MQTT] LWT offline for {api_key!r}")
+                LOG.info(f"[MQTT] LWT offline for {_key_id(api_key)}")
                 self._disconnect_peer(api_key)
             return
 
@@ -280,7 +335,7 @@ class HiveMindMqttProtocol(NetworkProtocol):
                 payload = self._coerce_payload(payload)
             message = conn.decode(payload)
         except Exception as e:
-            LOG.warning(f"[MQTT] Failed to decode frame from {api_key!r}: {e}")
+            LOG.warning(f"[MQTT] Failed to decode frame from {_key_id(api_key)}: {e}")
             return
 
         if message is None:
@@ -328,7 +383,7 @@ class HiveMindMqttProtocol(NetworkProtocol):
             with self._lock:
                 stale = [k for k, ts in list(self._last_seen.items()) if (now - ts) > idle_timeout]
             for key in stale:
-                LOG.info(f"[MQTT] Idle timeout for peer {key!r}")
+                LOG.info(f"[MQTT] Idle timeout for peer {_key_id(key)}")
                 self._disconnect_peer(key)
 
     # ------------------------------------------------------------------

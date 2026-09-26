@@ -893,3 +893,153 @@ class TestRun:
             p.run()
 
         mock_client_instance.connect.assert_called_once_with("localhost", 1883, keepalive=60)
+
+
+# ── the access key never reaches a log line ───────────────────────────────
+class TestTheAccessKeyIsNeverLogged:
+    """The access key is the satellite's credential.
+
+    ``get_client_by_api_key`` is what it is passed to, so a log line that
+    carries it hands whoever reads the log a working identity. The reference
+    WebSocket binding refuses to log it in any recoverable form; this module
+    logged it verbatim at six sites, and a seventh printed ``conn.name``,
+    which embeds it.
+
+    Every test here drives the code path and reads the captured lines. None
+    of them matches the module source.
+    """
+
+    KEY = "sk-live-9f3b7a21c4de8051"
+
+    def _capture(self, monkeypatch):
+        lines = []
+        import hivemind_mqtt_protocol as module
+
+        for level in ("debug", "info", "warning", "error", "exception"):
+            monkeypatch.setattr(
+                module.LOG, level,
+                lambda msg, *a, _l=level, **k: lines.append(
+                    (msg % a if a else str(msg))))
+        return lines
+
+    def test_an_unknown_key_is_not_logged(self, monkeypatch):
+        p = _make_protocol()
+        p.hm_protocol.db.get_client_by_api_key = MagicMock(return_value=None)
+        lines = self._capture(monkeypatch)
+
+        assert p._build_client_connection(self.KEY) is None
+
+        assert lines, "the refusal no longer logs anything"
+        assert not any(self.KEY in line for line in lines), lines
+
+    def test_the_label_is_stable_and_not_the_key(self):
+        from hivemind_mqtt_protocol import _key_id
+
+        label = _key_id(self.KEY)
+        assert _key_id(self.KEY) == label          # follows one peer across lines
+        assert _key_id(self.KEY + "x") != label    # and separates two
+        assert self.KEY not in label
+        assert not self.KEY.startswith(label.removeprefix("key#"))
+
+    def test_a_new_connection_does_not_log_the_key(self, monkeypatch):
+        """The seventh site: it logged conn.name, and conn.name embeds the key."""
+        p = _make_protocol()
+        user = MagicMock(client_id="c-17", name="kitchen", password=None,
+                         crypto_key="k" * 16, allowed_types=["speak"],
+                         can_broadcast=False, can_propagate=False,
+                         can_escalate=False, is_admin=False)
+        p.hm_protocol.db.get_client_by_api_key = MagicMock(return_value=user)
+        lines = self._capture(monkeypatch)
+
+        conn = p._build_client_connection(self.KEY)
+
+        assert conn is not None
+        assert any("New connection" in line for line in lines), lines
+        assert not any(self.KEY in line for line in lines), lines
+
+    def test_disconnect_and_idle_timeout_do_not_log_the_key(self, monkeypatch):
+        p = _make_protocol()
+        conn = MagicMock()
+        p._peers[self.KEY] = conn
+        p._last_seen[self.KEY] = 0.0
+        lines = self._capture(monkeypatch)
+
+        p._disconnect_peer(self.KEY)
+
+        assert any("Disconnecting peer" in line for line in lines), lines
+        assert not any(self.KEY in line for line in lines), lines
+
+    def test_the_disconnect_closure_does_not_log_the_key(self, monkeypatch):
+        """The closure core calls on every core-initiated close.
+
+        ``conn.disconnect`` IS ``do_disconnect``. Core calls it on a v3 floor
+        refusal and on any policy close. No other cell in this class reaches
+        it: none of them calls it, and
+        ``test_disconnect_and_idle_timeout_do_not_log_the_key`` drives a
+        ``MagicMock`` connection whose ``disconnect`` is a mock rather than
+        this closure. So this is the cell for the eighth log site.
+        """
+        p = _make_protocol()
+        conn = p._build_client_connection(self.KEY)
+        lines = self._capture(monkeypatch)
+
+        conn.disconnect(code=1002, reason="protocol error")
+
+        assert any("disconnecting" in line for line in lines), lines
+        assert not any(self.KEY in line for line in lines), lines
+
+
+class TestTheAccessKeyIsNotInThePeerIdOrTheBusSource:
+    """``name`` feeds ``peer``, and core stamps ``peer`` into ``source``.
+
+    ``HiveMindClientConnection.peer`` is ``f"{name}::{session_id}{suffix}"``,
+    and ``hivemind-core`` writes ``context["peer"] = context["source"] =
+    client.peer`` on both injection paths. So a credential in ``name`` is not a
+    log-line problem: it is a field on the Layer-1 bus, read by every bus
+    observer and carried into each response's ``destination`` by
+    ``Message.reply()``. Core's own ``session_namespace`` docstring states the
+    rule — a Layer-1 identifier is derived from the durable client identity and
+    NOT from the secret access key, because these values are visible to every
+    bus observer.
+
+    These cells use the REAL ``HiveMindClientConnection``. The module-level
+    fake sets ``self.peer = kwargs.get("name")`` once at construction and never
+    recomputes it, so under the fake ``peer`` is not the property under test
+    and the assertion would not measure what it names.
+    """
+
+    KEY = "sk-live-9f3b7a21c4de8051"
+
+    @pytest.fixture(autouse=True)
+    def _real_connection(self, monkeypatch):
+        from hivemind_core.protocol import HiveMindClientConnection as Real
+        monkeypatch.setattr(hivemind_mqtt_protocol,
+                            "HiveMindClientConnection", Real)
+
+    def test_the_peer_id_does_not_carry_the_access_key(self):
+        p = _make_protocol()
+        conn = p._build_client_connection(self.KEY)
+        assert self.KEY not in conn.name, (
+            f"the access key is in conn.name: {conn.name!r}")
+        assert self.KEY not in conn.peer, (
+            "the access key is in the peer id, which core stamps into "
+            f"context['source'] of every injected message: {conn.peer!r}")
+
+    def test_the_peer_id_follows_the_reference_composition(self):
+        """The reference bindings use ``useragent::client_id::name``.
+
+        MQTT has no useragent, so the transport takes that slot. Asserted as a
+        shape rather than a literal peer id, because the session-id half is
+        core's and this module does not choose it.
+        """
+        p = _make_protocol()
+        conn = p._build_client_connection(self.KEY)
+        assert conn.name.startswith("mqtt::"), (
+            f"expected the transport in the useragent slot; got {conn.name!r}")
+        assert conn.name.count("::") == 2, (
+            "expected three fields — transport, client id, client name; got "
+            f"{conn.name!r}")
+        assert conn.peer.startswith(conn.name + "::"), (
+            "peer is built from name, so a name change must move the peer id "
+            f"with it; name={conn.name!r} peer={conn.peer!r}")
+
