@@ -70,6 +70,19 @@ _OFFLINE = "offline"
 _DEFAULT_IDLE_TIMEOUT = 300
 
 
+#: Config keys whose values are credentials. They are replaced before the
+#: config is logged, and the config is kept out of the dataclass repr, so a
+#: usable broker password never reaches a log line.
+_SECRET_CONFIG_KEYS = frozenset({"broker_password"})
+
+
+def _redacted_config(config: dict[str, Any]) -> dict[str, Any]:
+    """A copy of ``config`` that is safe to log."""
+    return {
+        key: ("***" if key in _SECRET_CONFIG_KEYS and value else value)
+        for key, value in config.items()
+    }
+
 @dataclass
 class HiveMindMqttProtocol(NetworkProtocol):
     """MQTT broker-mediated network protocol for hivemind-core.
@@ -88,7 +101,7 @@ class HiveMindMqttProtocol(NetworkProtocol):
         idle_timeout       (int)  300   — seconds of silence before eviction; 0 disables
     """
 
-    config: Dict[str, Any] = field(default_factory=dict)
+    config: Dict[str, Any] = field(default_factory=dict, repr=False)
     hm_protocol: Optional[HiveMindListenerProtocol] = None
     callbacks: ClientCallbacks = field(default_factory=ClientCallbacks)
 
@@ -323,7 +336,7 @@ class HiveMindMqttProtocol(NetworkProtocol):
     # ------------------------------------------------------------------
 
     def run(self) -> None:
-        LOG.debug(f"[MQTT] protocol config: {self.config}")
+        LOG.debug("[MQTT] protocol config: %s", _redacted_config(self.config))
 
         broker_host: str = str(self._cfg("broker_host") or "localhost")
         broker_port: int = int(self._cfg("broker_port") or 1883)
