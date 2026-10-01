@@ -337,6 +337,22 @@ class TestDisconnect:
 
         assert "sat1" not in p._peers
 
+    def test_do_disconnect_escapes_newline_in_reason(self):
+        """reason is attacker-influenced free text from hivemind-core's
+        handshake rejection; a newline in it must not split the DEBUG log
+        record into a forged second line."""
+        p = _make_protocol()
+        p._build_client_connection("sat1")
+        conn = p._peers["sat1"]
+
+        with patch.object(hivemind_mqtt_protocol.LOG, "debug") as mock_debug:
+            conn.disconnect(1008, "rejected\nBcc: attacker@evil.test")
+
+        mock_debug.assert_called_once()
+        logged = mock_debug.call_args.args[0]
+        assert "\nBcc: attacker@evil.test" not in logged
+        assert "\\n" in logged
+
     def test_disconnect_unknown_peer_is_noop(self):
         p = _make_protocol()
         # Should not raise.

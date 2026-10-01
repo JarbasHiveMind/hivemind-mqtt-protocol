@@ -175,7 +175,7 @@ class HiveMindMqttProtocol(NetworkProtocol):
             mqttclient.publish(out, payload, qos=qos_fn(is_bin))
 
         def do_disconnect(code: int = 1000, reason: str = "") -> None:
-            LOG.debug(f"[MQTT] disconnecting {api_key!r} (code={code}, reason={reason})")
+            LOG.debug(f"[MQTT] disconnecting {api_key!r} (code={code}, reason={reason!r})")
             mqttclient.publish(status, _OFFLINE, qos=1, retain=True)
             # the same teardown the broker's last-will path runs, so a
             # session core closes leaves core's client table too
