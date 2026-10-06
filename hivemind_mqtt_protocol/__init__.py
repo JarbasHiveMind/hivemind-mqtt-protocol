@@ -84,6 +84,50 @@ _DEFAULT_IDLE_TIMEOUT = 300
 _SECRET_CONFIG_KEYS = frozenset({"broker_password"})
 
 
+#: Characters that make a topic level something other than one literal level:
+#: the two MQTT wildcards, the level separator, and NUL (forbidden in topics).
+_UNSAFE_TOPIC_LEVEL_CHARS = frozenset({"+", "#", "/", "\x00"})
+
+
+def _validated_hub_id(raw: Any) -> str:
+    """Normalise a configured ``hub_id`` into one literal topic level.
+
+    ``hub_id`` is interpolated into the subscription filters
+    (``<prefix>/<hub_id>/c2s/+``), so it is the boundary that keeps a hub to its
+    own namespace. A ``+`` or ``#`` in it would subscribe across every hub, and
+    an embedded ``/`` would move the boundary to another level; either way the
+    subscription is wider than the hub. Those values fail here, so the listener
+    never starts with a broader scope than configured.
+
+    Args:
+        raw: the configured value. ``None``, empty or blank means "no hub
+            scope" and selects the unscoped ``<prefix>/<api_key>/in`` layout.
+            Surrounding slashes are tolerated and removed.
+
+    Returns:
+        The single topic level, or ``""`` when no hub scope is configured.
+
+    Raises:
+        ValueError: the value is set but is not exactly one literal level: it
+            contains a wildcard, ``/`` or NUL, or nothing is left once the
+            surrounding slashes are removed.
+    """
+    if raw is None:
+        return ""
+    text = str(raw).strip()
+    if not text:
+        return ""
+    hub_id = text.strip("/")
+    if not hub_id:
+        raise ValueError(f"MQTT hub_id {raw!r} is empty once its slashes are removed")
+    unsafe = sorted(_UNSAFE_TOPIC_LEVEL_CHARS.intersection(hub_id))
+    if unsafe:
+        raise ValueError(
+            f"MQTT hub_id {raw!r} must be one literal topic level; "
+            f"it contains {', '.join(repr(c) for c in unsafe)}")
+    return hub_id
+
+
 def _redacted_config(config: dict[str, Any]) -> dict[str, Any]:
     """A copy of ``config`` that is safe to log."""
     return {
@@ -132,10 +176,39 @@ class HiveMindMqttProtocol(NetworkProtocol):
     def _prefix(self) -> str:
         return str(self._cfg("topic_prefix") or "hivemind")
 
+    def __post_init__(self) -> None:
+        """Reject an unsafe ``hub_id`` when the listener is built.
+
+        hivemind-core constructs each transport before running it and logs a
+        constructor failure, so a bad value stops this listener at startup
+        rather than subscribing it to a wider topic tree.
+
+        Raises:
+            ValueError: ``hub_id`` is not a single literal topic level.
+        """
+        self._hub_id()
+
     def _hub_id(self) -> str:
-        return str(self._cfg("hub_id") or "").strip().strip("/")
+        """The configured hub topic level, validated on every call.
+
+        Every topic and filter is built through here, so a ``hub_id`` changed in
+        the config after construction is still checked before it is used.
+
+        Returns:
+            The hub level, or ``""`` when no hub scope is configured.
+
+        Raises:
+            ValueError: see ``_validated_hub_id``.
+        """
+        return _validated_hub_id(self._cfg("hub_id"))
 
     def _topic_base(self) -> str:
+        """The topic root every topic and filter of this listener sits under.
+
+        Returns:
+            ``<prefix>/<hub_id>`` with a hub scope, otherwise ``<prefix>``,
+            without leading or trailing slashes.
+        """
         prefix = self._prefix().strip("/")
         hub_id = self._hub_id()
         return f"{prefix}/{hub_id}" if hub_id else prefix
@@ -167,19 +240,51 @@ class HiveMindMqttProtocol(NetworkProtocol):
         return f"{self._topic_base()}/{api_key}/status"
 
     def in_wildcard(self) -> str:
+        """Subscription filter for every satellite's inbound topic.
+
+        The only wildcard is the api_key level, so the filter never reaches
+        outside this listener's base (and, with ``hub_id``, its hub).
+
+        Returns:
+            ``<base>/c2s/+`` with a hub scope, ``<prefix>/+/in`` without.
+        """
         if self._hub_id():
             return f"{self._topic_base()}/c2s/+"
         return f"{self._topic_base()}/+/in"
 
     def status_wildcard(self) -> str:
+        """Subscription filter for every satellite's retained presence topic.
+
+        Returns:
+            ``<base>/status/+`` with a hub scope, ``<prefix>/+/status`` without.
+        """
         if self._hub_id():
             return f"{self._topic_base()}/status/+"
         return f"{self._topic_base()}/+/status"
 
     def master_status_topic(self) -> str:
+        """The hub's own presence topic, also used as its last will.
+
+        Built like a satellite's status topic so that, with ``hub_id`` set, it
+        stays inside the hub's ``<prefix>/<hub_id>/#`` broker ACL.
+
+        Returns:
+            The status topic for this node's identity name, or ``master``.
+        """
         return self.status_topic(self.identity.name or "master")
 
     def _broker_client_id(self) -> str:
+        """The MQTT client id this listener connects with.
+
+        Stable for one replica across restarts and distinct between replicas:
+        ``hivemind-<hub_id or name>`` plus a short hash of the replica suffix
+        (``client_id_suffix``, else ``$HOSTNAME``, else the machine hostname).
+        The suffix is hashed so a hostname is not published as part of the id.
+
+        Returns:
+            ``client_id`` verbatim when configured, otherwise the derived id
+            (without a suffix only when every source is empty).
+        """
         explicit = self._cfg("client_id")
         if explicit:
             return str(explicit)
@@ -309,6 +414,20 @@ class HiveMindMqttProtocol(NetworkProtocol):
         client.subscribe(self.status_wildcard(), qos=1)
 
     def _on_message(self, client: mqtt.Client, userdata: Any, msg: mqtt.MQTTMessage) -> None:
+        """paho callback: route one MQTT message to its satellite connection.
+
+        A topic outside this listener's layout is logged and dropped. A status
+        message disconnects a peer whose last will says ``offline`` (the hub's
+        own presence echo is ignored). An inbound frame is decoded on the
+        peer's connection, built on first contact, and handed to
+        ``hm_protocol.handle_message``; a frame that does not decode is logged
+        and dropped.
+
+        Args:
+            client: the paho client (unused; the listener keeps its own).
+            userdata: paho user data (unused).
+            msg: the received message.
+        """
         topic: str = msg.topic
         payload: bytes = msg.payload
 
@@ -405,6 +524,13 @@ class HiveMindMqttProtocol(NetworkProtocol):
     # ------------------------------------------------------------------
 
     def run(self) -> None:
+        """Connect to the broker and serve satellites until the loop ends.
+
+        Sets the hub's ``offline`` last will and publishes ``online`` to the
+        same retained topic, starts the idle sweep unless ``idle_timeout`` is
+        0 or less, then blocks in paho's ``loop_forever``. The config is logged
+        at debug level with the broker password masked.
+        """
         LOG.debug("[MQTT] protocol config: %s", _redacted_config(self.config))
 
         broker_host: str = str(self._cfg("broker_host") or "localhost")

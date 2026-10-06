@@ -126,16 +126,19 @@ class TestTopics:
         assert p.in_topic("x") == "hm/x/in"
 
     def test_hub_scoped_topics_match_sdk_layout(self):
+        """With hub_id, topics follow the SDK's <prefix>/<hub>/<direction>/<key> layout."""
         p = _make_protocol({"topic_prefix": "hm", "hub_id": "hub-1"})
         assert p.in_topic("sat1") == "hm/hub-1/c2s/sat1"
         assert p.out_topic("sat1") == "hm/hub-1/s2c/sat1"
         assert p.status_topic("sat1") == "hm/hub-1/status/sat1"
 
     def test_configured_broker_client_id_wins(self):
+        """An explicit client_id is used verbatim, with no derived suffix."""
         p = _make_protocol({"client_id": "fixed-client"})
         assert p._broker_client_id() == "fixed-client"
 
     def test_broker_client_id_uses_hashed_replica_suffix(self):
+        """Replicas get distinct ids, and the suffix appears only as a hash."""
         p = _make_protocol({"hub_id": "hub-1", "client_id_suffix": "pod-a"})
         other = _make_protocol({"hub_id": "hub-1", "client_id_suffix": "pod-b"})
 
@@ -144,6 +147,7 @@ class TestTopics:
         assert "pod-a" not in p._broker_client_id()
 
     def test_managed_master_will_stays_inside_the_hub_acl(self):
+        """The hub's status topic sits under <prefix>/<hub_id>/, which its ACL grants."""
         p = _make_protocol({"topic_prefix": "hm", "hub_id": "hub-1"})
 
         assert p.master_status_topic() == "hm/hub-1/status/testkey"
@@ -158,23 +162,28 @@ class TestTopics:
         assert p.status_wildcard() == "hivemind/+/status"
 
     def test_hub_scoped_wildcards(self):
+        """With hub_id, both filters wildcard only the api_key level inside the hub."""
         p = _make_protocol({"hub_id": "hub-1"})
         assert p.in_wildcard() == "hivemind/hub-1/c2s/+"
         assert p.status_wildcard() == "hivemind/hub-1/status/+"
 
     def test_api_key_from_in_topic(self):
+        """The unscoped layout reads <prefix>/<key>/in as (in, key)."""
         p = _make_protocol()
         assert p._parse_topic("hivemind/sat42/in") == ("in", "sat42")
 
     def test_api_key_from_status_topic(self):
+        """The unscoped layout reads <prefix>/<key>/status as (status, key)."""
         p = _make_protocol()
         assert p._parse_topic("hivemind/sat99/status") == ("status", "sat99")
 
     def test_api_key_from_hub_scoped_topic(self):
+        """The hub layout reads <prefix>/<hub>/c2s/<key> as (c2s, key)."""
         p = _make_protocol({"hub_id": "hub-1"})
         assert p._parse_topic("hivemind/hub-1/c2s/sat99") == ("c2s", "sat99")
 
     def test_api_key_short_topic_returns_none(self):
+        """A topic with too few levels parses to (None, None)."""
         assert _make_protocol()._parse_topic("bad") == (None, None)
 
     def test_a_standalone_key_named_like_a_direction_is_still_a_key(self):
@@ -186,12 +195,14 @@ class TestTopics:
             assert p._parse_topic(f"tenant/hm/{key}/status") == ("status", key)
 
     def test_a_topic_outside_the_listeners_layout_is_rejected(self):
+        """Another hub, the other layout, or another prefix parse to (None, None)."""
         managed = _make_protocol({"hub_id": "hub-1"})
         assert managed._parse_topic("hivemind/hub-2/c2s/sat1") == (None, None)
         assert managed._parse_topic("hivemind/hub-1/sat1/in") == (None, None)
         assert _make_protocol()._parse_topic("other/sat1/in") == (None, None)
 
     def test_a_key_named_like_a_direction_is_routed_to_its_own_client(self):
+        """A satellite whose key is ``c2s`` gets its own connection, not one for ``in``."""
         p = _make_protocol({"topic_prefix": "tenant/hm"})
         p._build_client_connection = MagicMock(return_value=None)
 
@@ -204,6 +215,42 @@ class TestTopics:
 # ---------------------------------------------------------------------------
 # _coerce_payload: MQTT bytes → str/bytes the way decode() expects
 # ---------------------------------------------------------------------------
+
+
+class TestHubIdValidation:
+    """``hub_id`` must be exactly one literal topic level, or the listener fails.
+
+    It is interpolated into the subscription filters, so a wildcard or an extra
+    level would widen what the hub subscribes to beyond its own namespace.
+    """
+
+    @pytest.mark.parametrize("hub_id", [
+        "+", "#", "hub/+", "hub-1/#", "hub+1", "hub#1",
+        "hub-1/c2s", "tenant/hub-1", "hub\x00",
+        "/", "//", " / ",
+    ])
+    def test_an_unsafe_hub_id_is_rejected_at_construction(self, hub_id):
+        """Wildcards, an embedded level, NUL, or nothing left after stripping."""
+        with pytest.raises(ValueError, match="hub_id"):
+            _make_protocol({"hub_id": hub_id})
+
+    @pytest.mark.parametrize("hub_id", [None, "", "   "])
+    def test_an_unset_hub_id_keeps_the_unscoped_layout(self, hub_id):
+        """None, empty and blank all mean "no hub scope", as before."""
+        p = _make_protocol({"hub_id": hub_id})
+        assert p.in_wildcard() == "hivemind/+/in"
+
+    def test_surrounding_slashes_are_still_tolerated(self):
+        """``/hub-1/`` names the same single level as ``hub-1``."""
+        p = _make_protocol({"hub_id": "/hub-1/"})
+        assert p.in_wildcard() == "hivemind/hub-1/c2s/+"
+
+    def test_a_hub_id_changed_after_construction_is_rejected_too(self):
+        """The config dict is mutable; the filters re-check on every build."""
+        p = _make_protocol({"hub_id": "hub-1"})
+        p.config["hub_id"] = "#"
+        with pytest.raises(ValueError, match="hub_id"):
+            p.in_wildcard()
 
 
 class TestCoercePayload:
@@ -471,6 +518,7 @@ class TestLWT:
         p.hm_protocol.handle_message.assert_called_once()
 
     def test_hub_scoped_c2s_message_routed_to_handle_message(self):
+        """A frame on <prefix>/<hub>/c2s/<key> reaches hm_protocol.handle_message."""
         p = _make_protocol({"hub_id": "hub-1"})
         p._build_client_connection("sat1")
         p.hm_protocol.handle_message.reset_mock()
@@ -614,6 +662,7 @@ class TestOnConnect:
 
 class TestPasswordHandshake:
     def test_user_with_password_sets_pswd_handshake(self):
+        """A client with a password gets a password handshake on its connection."""
         p = _make_protocol()
         user = p.hm_protocol.db.get_client_by_api_key.return_value
         user.password = "correct horse battery staple satellite 2026"
@@ -788,6 +837,7 @@ class TestRun:
         mock_client_instance.loop_forever.assert_called_once()
 
     def _client_id_for(self, config=None):
+        """Run a protocol built from ``config`` and return it with its client id."""
         import paho.mqtt.client as paho_mqtt
         p = _make_protocol(config or {})
         with patch.object(paho_mqtt, "Client",
@@ -836,6 +886,7 @@ class TestRun:
         assert before == after
 
     def test_run_uses_configured_client_id(self):
+        """run() hands an explicit client_id to paho unchanged."""
         p = _make_protocol({"client_id": "hm-fixed"})
         mock_client_instance = self._make_mock_mqtt_client()
 
@@ -971,6 +1022,7 @@ class TestRun:
         assert args[1] == "offline"
 
     def test_run_managed_will_is_authorized_by_the_hub_topic_tree(self):
+        """With hub_id, the last will is set on the hub-scoped status topic."""
         p = _make_protocol({"topic_prefix": "hm", "hub_id": "hub-1"})
         mock_client_instance = self._make_mock_mqtt_client()
 
