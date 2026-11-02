@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.6a2](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/tree/0.2.6a2) (2026-11-02)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/compare/0.2.6a1...0.2.6a2)
+
+**Merged pull requests:**
+
+- chore: add the Apache-2.0 licence text this project already declares [\#26](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/pull/26) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.2.6a1](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/tree/0.2.6a1) (2026-11-02)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/compare/0.2.5a2...0.2.6a1)
