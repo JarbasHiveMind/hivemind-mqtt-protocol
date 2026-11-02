@@ -31,9 +31,13 @@ clients. This has three effects:
 ## Topic scheme
 
 ```
-<prefix>/<api_key>/in      # satellite → master  (master subscribes <prefix>/+/in)
-<prefix>/<api_key>/out     # master → satellite
-<prefix>/<api_key>/status  # retained LWT presence (online / offline)
+<prefix>/<api_key>/in      # satellite → master, legacy standalone layout
+<prefix>/<api_key>/out     # master → satellite, legacy standalone layout
+<prefix>/<api_key>/status  # retained LWT presence, legacy standalone layout
+
+<prefix>/<topic_namespace>/c2s/<api_key>     # satellite → master, namespaced layout
+<prefix>/<topic_namespace>/s2c/<api_key>     # master → satellite, namespaced layout
+<prefix>/<topic_namespace>/status/<api_key>  # retained LWT presence, namespaced layout
 ```
 
 The default prefix is `hivemind`.
@@ -42,6 +46,9 @@ The `api_key` segment is the satellite's HiveMind access key. It is unique per
 client, so the master can look up the matching database record from the topic
 as soon as the first frame arrives. Without the matching crypto key, the
 payload ciphertext stays useless.
+
+When `topic_namespace` is configured, the listener uses the namespaced layout so broker ACLs can
+grant it one bounded topic tree.
 
 ## Crypto
 
@@ -77,11 +84,13 @@ closed when MQTT is unavailable.
 
 MQTT has no connection event the master can hook, so there is no `accept()`
 loop. The master creates a logical per-satellite connection lazily, on the
-first inbound frame on `<prefix>/<api_key>/in`:
+first inbound frame on the satellite's inbound topic -- `<prefix>/<api_key>/in`,
+or `<prefix>/<topic_namespace>/c2s/<api_key>` when `topic_namespace` is set:
 
 1. The satellite announces presence (retained LWT plus `online`), subscribes
    to its `out` topic, and publishes its first frame to its `in` topic.
-2. The master's single client receives the frame on `<prefix>/+/in`, looks up
+2. The master's single client receives the frame on its inbound wildcard
+   (`<prefix>/+/in`, or `<prefix>/<topic_namespace>/c2s/+`), looks up
    the `api_key` in the database, builds the `HiveMindClientConnection`, and
    (through `handle_new_client`) replies on the `out` topic with `HELLO` and a
    handshake request.
@@ -94,9 +103,11 @@ master's request and derive a mismatched key.
 
 ### Master self-presence
 
-The master publishes its own presence to `<prefix>/<master_name>/status`
-(`<master_name>` is the master's `NodeIdentity.name`). This topic also matches
-the master's own `<prefix>/+/status` subscription, so the master receives its
+The master publishes its own presence to `<prefix>/<master_name>/status`, or
+`<prefix>/<topic_namespace>/status/<master_name>` when `topic_namespace` is set (`<master_name>`
+is the master's `NodeIdentity.name`). This topic also matches the master's own
+status wildcard (`<prefix>/+/status` or `<prefix>/<topic_namespace>/status/+`), so the
+master receives its
 own status echo. The master recognizes and ignores this self-echo, so it never
 treats itself as a satellite peer.
 
@@ -105,8 +116,10 @@ treats itself as a satellite peer.
 1. **Broker-level**: MQTT `username` / `password` (config keys
    `broker_username` / `broker_password`), or a TLS client certificate (config
    keys `tls_certfile` / `tls_keyfile`). Configure the broker's ACL so each
-   satellite can only publish to its own `<api_key>/in` topic and subscribe to
-   its own `<api_key>/out` topic.
+   satellite can only publish to its own inbound topic and subscribe to its own
+   outbound topic: `<prefix>/<api_key>/in` and `<prefix>/<api_key>/out`, or with
+   `topic_namespace` set, `<prefix>/<topic_namespace>/c2s/<api_key>` and
+   `<prefix>/<topic_namespace>/s2c/<api_key>`.
 2. **HiveMind-level**: the HELLO / HANDSHAKE exchange embedded in the
    encrypted payload, the same as the WebSocket path. The `api_key` is the
    topic segment, so the master can look up the database record on first
