@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.0a1](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/tree/0.3.0a1) (2026-11-02)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/compare/0.2.6a2...0.3.0a1)
+
+**Merged pull requests:**
+
+- feat: scope MQTT topics to a namespace, and keep a replica's client id [\#10](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/pull/10) ([goldyfruit](https://github.com/goldyfruit))
+
 ## [0.2.6a2](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/tree/0.2.6a2) (2026-11-02)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/compare/0.2.6a1...0.2.6a2)
