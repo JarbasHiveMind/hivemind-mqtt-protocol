@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.2a1](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/tree/0.3.2a1) (2026-11-13)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/compare/0.3.1a1...0.3.2a1)
+
+**Merged pull requests:**
+
+- fix: escape close reason before logging it \(log forging\) [\#27](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/pull/27) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.3.1a1](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/tree/0.3.1a1) (2026-11-13)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/compare/0.3.0a1...0.3.1a1)
