@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.1a1](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/tree/0.3.1a1) (2026-11-13)
+
+[Full Changelog](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/compare/0.3.0a1...0.3.1a1)
+
+**Merged pull requests:**
+
+- fix\(tests\): drop tests/\_\_init\_\_.py so build\_tests imports the wheel [\#25](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/pull/25) ([openvoiceos-bot](https://github.com/openvoiceos-bot))
+
 ## [0.3.0a1](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/tree/0.3.0a1) (2026-11-02)
 
 [Full Changelog](https://github.com/JarbasHiveMind/hivemind-mqtt-protocol/compare/0.2.6a2...0.3.0a1)
